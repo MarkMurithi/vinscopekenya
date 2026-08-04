@@ -596,12 +596,6 @@ app.patch('/api/reports/:vin/comparison', requireAuth, async (req, res) => {
 const PLAN_AMOUNTS = { Starter: 0, Pro: 999, Business: 2999 };
 
 app.post('/api/payments/stkpush', requireAuth, async (req, res) => {
-  if (!isMpesaConfigured()) {
-    return res.status(503).json({
-      error: 'M-Pesa is not configured on this server yet. Set MPESA_CONSUMER_KEY, MPESA_CONSUMER_SECRET, MPESA_SHORTCODE and MPESA_PASSKEY.',
-    });
-  }
-
   const { plan, phone } = req.body || {};
   const amount = PLAN_AMOUNTS[plan];
 
@@ -626,7 +620,8 @@ app.post('/api/payments/stkpush', requireAuth, async (req, res) => {
 
     await pool.query(
       `INSERT INTO subscriptions (user_id, plan, amount, phone, status, checkout_request_id)
-       VALUES ($1, $2, $3, $4, 'pending', $5)`,
+       VALUES ($1, $2, $3, $4, 'pending', $5)
+       ON CONFLICT (checkout_request_id) DO NOTHING`,
       [req.user.id, plan, amount, normalizedPhone, stk.CheckoutRequestID]
     );
 

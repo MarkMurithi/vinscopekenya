@@ -723,17 +723,72 @@ button {
   color: var(--text-muted);
 }
 
-.mpesa-box {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.checkout-panel {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--gray-200);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(230, 57, 70, 0.06), rgba(32, 41, 59, 0.03));
+  box-shadow: var(--shadow);
 }
 
-.mpesa-box input {
+.checkout-header h3 {
+  margin: 0 0 6px;
+  color: var(--navy);
+}
+
+.checkout-header p {
+  margin: 0 0 14px;
+  color: var(--text-muted);
+}
+
+.payment-methods {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.payment-pill {
+  border: 1px solid var(--gray-200);
+  background: var(--white);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.payment-pill.active {
+  background: var(--red);
+  color: var(--white);
+  border-color: var(--red);
+}
+
+.payment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 420px;
+}
+
+.payment-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.payment-form input {
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--gray-200);
+}
+
+.card-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .testimonial-grid article p {

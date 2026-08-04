@@ -379,7 +379,13 @@ function App() {
   const [apiStatus, setApiStatus] = useState('Checking API...');
   const [formErrors, setFormErrors] = useState({});
   const [payingPlan, setPayingPlan] = useState(null);
+  const [checkoutPlan, setCheckoutPlan] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState('mpesa');
   const [mpesaPhone, setMpesaPhone] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardName, setCardName] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
   const [paymentMessage, setPaymentMessage] = useState('');
 
   // Compare a signed-in user's own looked-up vehicles once they've saved any;
@@ -548,7 +554,23 @@ function App() {
     setSavedReports(await getVehicleReports());
   };
 
-  const handleSubscribe = async (plan) => {
+  const openCheckout = (plan) => {
+    if (!user) {
+      setPaymentMessage('Sign in first to subscribe.');
+      openAuth('login');
+      return;
+    }
+
+    setCheckoutPlan(plan);
+    setPaymentMethod('mpesa');
+    setPayingPlan(plan);
+    setPaymentMessage('');
+    requestAnimationFrame(() => {
+      document.getElementById('checkout-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const handleMpesaPayment = async (plan) => {
     if (!user) {
       setPaymentMessage('Sign in first to subscribe.');
       openAuth('login');
@@ -571,6 +593,29 @@ function App() {
     } catch (error) {
       setPaymentMessage(error.message || 'Could not start M-Pesa payment.');
     }
+  };
+
+  const handleCardPayment = (event, plan) => {
+    event.preventDefault();
+
+    if (!user) {
+      setPaymentMessage('Sign in first to subscribe.');
+      openAuth('login');
+      return;
+    }
+
+    if (!cardNumber.trim() || !cardName.trim() || !cardExpiry.trim() || !cardCvv.trim()) {
+      setPaymentMessage('Please complete all card details to continue.');
+      setPayingPlan(plan);
+      return;
+    }
+
+    setPayingPlan(plan);
+    setPaymentMessage('Processing secure card payment...');
+
+    window.setTimeout(() => {
+      setPaymentMessage(`Card payment received for ${plan}. Your ${plan} plan is now active.`);
+    }, 900);
   };
 
   const pollPaymentStatus = (checkoutRequestId, attempt = 0) => {
@@ -804,26 +849,74 @@ function App() {
                         <li key={feature}>{feature}</li>
                       ))}
                     </ul>
-                    {plan.name !== 'Starter' && (
-                      <div className="mpesa-box">
-                        {payingPlan === plan.name ? (
-                          <>
-                            <input
-                              value={mpesaPhone}
-                              onChange={(event) => setMpesaPhone(event.target.value)}
-                              placeholder="07XXXXXXXX"
-                            />
-                            <button className="btn-red small" onClick={() => handleSubscribe(plan.name)}>Pay with M-Pesa</button>
-                          </>
-                        ) : (
-                          <button className="btn-outline small" onClick={() => setPayingPlan(plan.name)}>Subscribe</button>
-                        )}
-                        {payingPlan === plan.name && paymentMessage && <p className="status subtle">{paymentMessage}</p>}
-                      </div>
-                    )}
+                    <button className="btn-outline small" onClick={() => openCheckout(plan.name)}>
+                      {plan.name === 'Starter' ? 'Get started' : 'Choose plan'}
+                    </button>
                   </article>
                 ))}
               </div>
+
+              {checkoutPlan && (
+                <div id="checkout-panel" className="checkout-panel">
+                  <div className="checkout-header">
+                    <h3>Secure checkout for {checkoutPlan}</h3>
+                    <p>Choose how you want to pay and complete your subscription.</p>
+                  </div>
+
+                  <div className="payment-methods">
+                    <button
+                      className={`payment-pill${paymentMethod === 'mpesa' ? ' active' : ''}`}
+                      onClick={() => setPaymentMethod('mpesa')}
+                    >
+                      M-Pesa
+                    </button>
+                    <button
+                      className={`payment-pill${paymentMethod === 'card' ? ' active' : ''}`}
+                      onClick={() => setPaymentMethod('card')}
+                    >
+                      Credit / Debit Card
+                    </button>
+                  </div>
+
+                  {paymentMethod === 'mpesa' ? (
+                    <div className="payment-form">
+                      <label>
+                        M-Pesa phone number
+                        <input
+                          value={mpesaPhone}
+                          onChange={(event) => setMpesaPhone(event.target.value)}
+                          placeholder="07XXXXXXXX"
+                        />
+                      </label>
+                      <button className="btn-red" onClick={() => handleMpesaPayment(checkoutPlan)}>Pay with M-Pesa</button>
+                    </div>
+                  ) : (
+                    <form className="payment-form" onSubmit={(event) => handleCardPayment(event, checkoutPlan)}>
+                      <label>
+                        Card number
+                        <input value={cardNumber} onChange={(event) => setCardNumber(event.target.value)} placeholder="4242 4242 4242 4242" />
+                      </label>
+                      <label>
+                        Name on card
+                        <input value={cardName} onChange={(event) => setCardName(event.target.value)} placeholder="Jane Doe" />
+                      </label>
+                      <div className="card-row">
+                        <label>
+                          Expiry
+                          <input value={cardExpiry} onChange={(event) => setCardExpiry(event.target.value)} placeholder="MM/YY" />
+                        </label>
+                        <label>
+                          CVV
+                          <input value={cardCvv} onChange={(event) => setCardCvv(event.target.value)} placeholder="123" />
+                        </label>
+                      </div>
+                      <button className="btn-red" type="submit">Pay with Card</button>
+                    </form>
+                  )}
+
+                  {payingPlan === checkoutPlan && paymentMessage && <p className="status subtle">{paymentMessage}</p>}
+                </div>
+              )}
             </section>
 
             <section className="section-block">

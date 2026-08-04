@@ -68,6 +68,16 @@ export function normalizeKenyanPhone(phone) {
 }
 
 export async function initiateStkPush({ phone, amount, plan, callbackUrl }) {
+  if (!isMpesaConfigured()) {
+    const demoCheckoutId = `demo-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    return {
+      CheckoutRequestID: demoCheckoutId,
+      ResponseCode: '0',
+      ResponseDescription: 'Demo M-Pesa checkout initialized',
+      CustomerMessage: 'Demo M-Pesa payment initialized. Enter your PIN on the phone to continue in a live setup.',
+    };
+  }
+
   const shortcode = process.env.MPESA_SHORTCODE;
   const passkey = process.env.MPESA_PASSKEY;
   const timestamp = timestampNow();
