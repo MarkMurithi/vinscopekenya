@@ -1,9 +1,10 @@
 const DEFAULT_BASE_URL = import.meta.env.DEV ? 'http://localhost:5000' : '';
 const baseUrl = import.meta.env.VITE_VEHICLE_API_URL || DEFAULT_BASE_URL;
 
-async function requestJson(path, options = {}) {
+export async function requestJson(path, options = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     ...options,
   });
 

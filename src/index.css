@@ -685,6 +685,19 @@ button {
   color: var(--text-muted);
 }
 
+.mpesa-box {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mpesa-box input {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--gray-200);
+}
+
 .testimonial-grid article p {
   color: var(--text);
   font-style: italic;
@@ -844,10 +857,18 @@ button {
 .saved-item {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 12px;
   border-radius: 12px;
   background: var(--gray-100);
+}
+
+.field-error {
+  margin: -8px 0 0;
+  color: var(--red-dark);
+  font-size: 0.85rem;
 }
 
 /* Footer */

@@ -1,7 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './index.css';
-import { getVehicleReports, loginUser, registerUser, saveVehicleReport } from './services/mockApi';
+import {
+  fetchCurrentUser,
+  getVehicleReports,
+  loginUser,
+  logoutUser,
+  registerUser,
+  saveVehicleReport,
+  deleteVehicleReport,
+} from './services/authApi';
 import { lookupVehicleByVin, pingVehicleApi } from './services/vehicleApi';
+import { startMpesaPayment, getPaymentStatus } from './services/paymentsApi';
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function IconLogo(props) {
   return (
@@ -302,6 +312,10 @@ function App() {
   const [savedReports, setSavedReports] = useState([]);
   const [loadingVehicle, setLoadingVehicle] = useState(false);
   const [apiStatus, setApiStatus] = useState('Checking API...');
+  const [formErrors, setFormErrors] = useState({});
+  const [payingPlan, setPayingPlan] = useState(null);
+  const [mpesaPhone, setMpesaPhone] = useState('');
+  const [paymentMessage, setPaymentMessage] = useState('');
 
   const comparisonReports = useMemo(
     () => sampleReports.filter((report) => comparisonIds.includes(report.id)),
@@ -317,39 +331,59 @@ function App() {
 
   const openAuth = (mode) => {
     setAuthMode(mode);
+    setFormErrors({});
     setView('account');
   };
 
-  const handleAuthSubmit = (event) => {
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchCurrentUser().then((currentUser) => {
+      if (cancelled || !currentUser) return;
+      setUser(currentUser);
+      getVehicleReports().then((reports) => {
+        if (!cancelled) setSavedReports(reports);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAuthSubmit = async (event) => {
     event.preventDefault();
 
-    if (authMode === 'login') {
-      const result = loginUser(email, password);
-      if (!result.success) {
-        setMessage(result.message);
-        return;
-      }
+    const errors = {};
+    if (!EMAIL_REGEX.test(email)) errors.email = 'Enter a valid email address.';
+    if (authMode === 'register' && password.length < 6) errors.password = 'Password must be at least 6 characters.';
+    if (!password) errors.password = errors.password || 'Password is required.';
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
-      const currentUser = { name: result.user.name, email: result.user.email };
-      setUser(currentUser);
-      setSavedReports(getVehicleReports(result.user.email));
-      setMessage(`Welcome back, ${currentUser.name}.`);
-      setView('report');
-      return;
-    }
+    const result = authMode === 'login'
+      ? await loginUser(email, password)
+      : await registerUser(email, password, name || 'New Buyer');
 
-    const result = registerUser(email, password, name || 'New Buyer');
     if (!result.success) {
       setMessage(result.message);
       return;
     }
 
-    const currentUser = { name: result.user.name, email: result.user.email };
-    setUser(currentUser);
-    setSavedReports(getVehicleReports(result.user.email));
-    setMessage('Account created. You can now access reports.');
+    setUser(result.user);
+    setSavedReports(await getVehicleReports());
+    setMessage(authMode === 'login' ? `Welcome back, ${result.user.name}.` : 'Account created. You can now access reports.');
     setView('report');
   };
+
+  const handleLogout = async () => {
+    await logoutUser();
+    setUser(null);
+    setSavedReports([]);
+    setMessage('You have been signed out.');
+    setView('home');
+  };
+
 
   const handleLookup = async (event) => {
     event.preventDefault();
@@ -415,15 +449,73 @@ function App() {
     );
   };
 
-  const saveCurrentReport = () => {
-    if (!user?.email) {
+  const saveCurrentReport = async () => {
+    if (!user) {
       setMessage('Sign in first to save a report.');
       return;
     }
 
-    saveVehicleReport(selectedReport, user.email);
-    setSavedReports(getVehicleReports(user.email));
-    setMessage(`Saved ${selectedReport.make} ${selectedReport.model} to your account.`);
+    try {
+      await saveVehicleReport(selectedReport);
+      setSavedReports(await getVehicleReports());
+      setMessage(`Saved ${selectedReport.make} ${selectedReport.model} to your account.`);
+    } catch (error) {
+      setMessage(error.message || 'Could not save this report.');
+    }
+  };
+
+  const removeSavedReport = async (vin) => {
+    await deleteVehicleReport(vin);
+    setSavedReports(await getVehicleReports());
+  };
+
+  const handleSubscribe = async (plan) => {
+    if (!user) {
+      setPaymentMessage('Sign in first to subscribe.');
+      openAuth('login');
+      return;
+    }
+
+    if (!mpesaPhone.trim()) {
+      setPaymentMessage('Enter your M-Pesa phone number, e.g. 07XXXXXXXX.');
+      setPayingPlan(plan);
+      return;
+    }
+
+    setPayingPlan(plan);
+    setPaymentMessage('Sending payment request...');
+
+    try {
+      const { checkoutRequestId, message: stkMessage } = await startMpesaPayment(plan, mpesaPhone);
+      setPaymentMessage(stkMessage);
+      pollPaymentStatus(checkoutRequestId);
+    } catch (error) {
+      setPaymentMessage(error.message || 'Could not start M-Pesa payment.');
+    }
+  };
+
+  const pollPaymentStatus = (checkoutRequestId, attempt = 0) => {
+    if (attempt > 15) {
+      setPaymentMessage('Still waiting for confirmation. Check your phone and try again if needed.');
+      return;
+    }
+
+    setTimeout(async () => {
+      try {
+        const status = await getPaymentStatus(checkoutRequestId);
+        if (status.status === 'completed') {
+          setPaymentMessage(`Payment confirmed! Receipt: ${status.mpesaReceipt}. ${status.plan} plan activated.`);
+          return;
+        }
+        if (status.status === 'failed') {
+          setPaymentMessage('Payment was not completed. Please try again.');
+          return;
+        }
+        pollPaymentStatus(checkoutRequestId, attempt + 1);
+      } catch {
+        pollPaymentStatus(checkoutRequestId, attempt + 1);
+      }
+    }, 4000);
   };
 
   useMemo(() => {
@@ -465,8 +557,17 @@ function App() {
           <button onClick={() => goToSection('contact')}>Contact</button>
         </nav>
         <div className="auth-buttons">
-          <button className="btn-outline" onClick={() => openAuth('login')}>Login</button>
-          <button className="btn-red" onClick={() => openAuth('register')}>Sign Up</button>
+          {user ? (
+            <>
+              <span className="status subtle">Hi, {user.name}</span>
+              <button className="btn-outline" onClick={handleLogout}>Logout</button>
+            </>
+          ) : (
+            <>
+              <button className="btn-outline" onClick={() => openAuth('login')}>Login</button>
+              <button className="btn-red" onClick={() => openAuth('register')}>Sign Up</button>
+            </>
+          )}
         </div>
       </header>
 
@@ -624,6 +725,23 @@ function App() {
                         <li key={feature}>{feature}</li>
                       ))}
                     </ul>
+                    {plan.name !== 'Starter' && (
+                      <div className="mpesa-box">
+                        {payingPlan === plan.name ? (
+                          <>
+                            <input
+                              value={mpesaPhone}
+                              onChange={(event) => setMpesaPhone(event.target.value)}
+                              placeholder="07XXXXXXXX"
+                            />
+                            <button className="btn-red small" onClick={() => handleSubscribe(plan.name)}>Pay with M-Pesa</button>
+                          </>
+                        ) : (
+                          <button className="btn-outline small" onClick={() => setPayingPlan(plan.name)}>Subscribe</button>
+                        )}
+                        {payingPlan === plan.name && paymentMessage && <p className="status subtle">{paymentMessage}</p>}
+                      </div>
+                    )}
                   </article>
                 ))}
               </div>
@@ -779,7 +897,9 @@ function App() {
                   <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" />
                 )}
                 <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" />
+                {formErrors.email && <p className="field-error">{formErrors.email}</p>}
                 <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="Password" />
+                {formErrors.password && <p className="field-error">{formErrors.password}</p>}
                 <button type="submit" className="btn-red">{authMode === 'login' ? 'Continue' : 'Register'}</button>
               </form>
               <p className="status">{message}</p>
@@ -802,9 +922,10 @@ function App() {
                     <p>No reports saved yet.</p>
                   ) : (
                     savedReports.map((report) => (
-                      <div key={report.id} className="saved-item">
+                      <div key={report.vin} className="saved-item">
                         <strong>{report.make} {report.model}</strong>
-                        <span>{report.score}/100 • {report.status}</span>
+                        <span>{report.score != null ? `${report.score}/100` : 'No score'} • {report.status}</span>
+                        <button className="btn-outline small" onClick={() => removeSavedReport(report.vin)}>Remove</button>
                       </div>
                     ))
                   )}

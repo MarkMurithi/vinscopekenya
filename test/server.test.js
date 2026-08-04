@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 
 process.env.NODE_ENV = 'test';
-const { app } = await import('../server.js');
+const { app, initializeDatabase } = await import('../server.js');
+await initializeDatabase();
 
 let server;
 

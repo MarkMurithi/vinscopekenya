@@ -37,4 +37,19 @@ A vehicle-history web app prototype with a PostgreSQL-backed backend.
 
 - GET /health
 - GET /api/vehicles/:vin
-- POST /api/vehicles
+- POST /api/vehicles (requires auth)
+- POST /api/auth/register, POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me
+- GET /api/reports, POST /api/reports, DELETE /api/reports/:vin (all require auth)
+- POST /api/payments/stkpush, POST /api/payments/mpesa/callback, GET /api/payments/status/:checkoutRequestId
+
+## Required environment variables
+
+See [.env.example](.env.example). At minimum, set `DATABASE_URL` and a strong `JWT_SECRET`.
+M-Pesa payments (`MPESA_*` vars) are optional - without them, `/api/payments/stkpush` returns a
+clear "not configured" error instead of failing unpredictably.
+
+## Tests & CI
+
+Run `npm test` against a local PostgreSQL instance (see `docker-compose up -d`). GitHub Actions
+(`.github/workflows/ci.yml`) runs the test suite and build against a fresh Postgres service
+container on every push/PR to `main`.
