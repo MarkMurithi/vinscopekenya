@@ -12,6 +12,9 @@ import {
 } from './services/authApi';
 import { lookupVehicleByVin, pingVehicleApi } from './services/vehicleApi';
 import { startMpesaPayment, getPaymentStatus } from './services/paymentsApi';
+import { buildComparisonChartData, buildVehicleHistorySections, filterSavedReports } from './utils/reportUtils';
+import { generateVerificationCode, maskContact } from './utils/verificationUtils';
+import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function IconLogo(props) {
@@ -376,17 +379,45 @@ function App() {
   const [name, setName] = useState('');
   const [savedReports, setSavedReports] = useState([]);
   const [loadingVehicle, setLoadingVehicle] = useState(false);
+  const [loadingSavedReports, setLoadingSavedReports] = useState(true);
   const [apiStatus, setApiStatus] = useState('Checking API...');
   const [formErrors, setFormErrors] = useState({});
   const [payingPlan, setPayingPlan] = useState(null);
   const [checkoutPlan, setCheckoutPlan] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('mpesa');
+  const [detailReport, setDetailReport] = useState(null);
   const [mpesaPhone, setMpesaPhone] = useState('');
   const [cardNumber, setCardNumber] = useState('');
   const [cardName, setCardName] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
   const [paymentMessage, setPaymentMessage] = useState('');
+  const [activeSubscription, setActiveSubscription] = useState(null);
+  const [checkoutSuccess, setCheckoutSuccess] = useState(null);
+  const [verificationStep, setVerificationStep] = useState('signup');
+  const [verificationMethod, setVerificationMethod] = useState('email');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationContact, setVerificationContact] = useState('');
+  const [verificationCodeSent, setVerificationCodeSent] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
+  const [savedReportSearch, setSavedReportSearch] = useState('');
+  const [savedReportFilter, setSavedReportFilter] = useState('all');
+  const [analytics, setAnalytics] = useState(() => {
+    if (typeof window === 'undefined') return getDefaultAnalytics();
+    try {
+      return JSON.parse(window.localStorage.getItem('vinscope-analytics') || 'null') || getDefaultAnalytics();
+    } catch {
+      return getDefaultAnalytics();
+    }
+  });
+  const [recentSearches, setRecentSearches] = useState(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      return JSON.parse(window.localStorage.getItem('vinscope-recent-searches') || '[]');
+    } catch {
+      return [];
+    }
+  });
 
   // Compare a signed-in user's own looked-up vehicles once they've saved any;
   // otherwise fall back to the 3 demo vehicles so the page still works for guests.
@@ -397,6 +428,25 @@ function App() {
     }
     return sampleReports.filter((report) => comparisonIds.includes(report.id));
   }, [usingSavedComparison, savedReports, comparisonIds]);
+  const comparisonChartData = useMemo(() => buildComparisonChartData(comparisonReports), [comparisonReports]);
+  const bestComparisonReport = useMemo(() => [...comparisonChartData].sort((a, b) => b.score - a.score)[0], [comparisonChartData]);
+  const detailSections = useMemo(() => buildVehicleHistorySections(detailReport || selectedReport), [detailReport, selectedReport]);
+  const filteredSavedReports = useMemo(() => {
+    const searched = filterSavedReports(savedReports, savedReportSearch);
+
+    if (savedReportFilter === 'all') return searched;
+    if (savedReportFilter === 'strong') return searched.filter((report) => (Number(report.score) || 0) >= 70);
+    if (savedReportFilter === 'risk') return searched.filter((report) => (Number(report.score) || 0) < 70);
+
+    return searched;
+  }, [savedReportFilter, savedReportSearch, savedReports]);
+
+  const persistAnalytics = (nextAnalytics) => {
+    setAnalytics(nextAnalytics);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('vinscope-analytics', JSON.stringify(nextAnalytics));
+    }
+  };
 
   const goToSection = (id) => {
     setView('home');
@@ -414,18 +464,83 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    fetchCurrentUser().then((currentUser) => {
-      if (cancelled || !currentUser) return;
-      setUser(currentUser);
-      getVehicleReports().then((reports) => {
-        if (!cancelled) setSavedReports(reports);
+    setLoadingSavedReports(true);
+    fetchCurrentUser()
+      .then((currentUser) => {
+        if (cancelled) return;
+        if (!currentUser) {
+          setUser(null);
+          setSavedReports([]);
+          return;
+        }
+
+        setUser(currentUser);
+        return getVehicleReports().then((reports) => {
+          if (!cancelled) setSavedReports(reports);
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMessage('We could not load your saved reports right now.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSavedReports(false);
       });
-    });
 
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const sendVerificationCode = () => {
+    if (!EMAIL_REGEX.test(email)) {
+      setVerificationError('Enter a valid email address before sending a verification code.');
+      return;
+    }
+
+    const code = generateVerificationCode();
+    const method = verificationMethod === 'sms' ? 'sms' : 'email';
+    const contact = method === 'sms' ? verificationContact || '+254700000000' : email;
+    const maskedContact = maskContact(contact, method);
+
+    setVerificationCode(code);
+    setVerificationContact(contact);
+    setVerificationCodeSent(true);
+    setVerificationError('');
+    setMessage(`Verification code sent to ${maskedContact}. Use code ${code} to continue.`);
+    setVerificationStep('verify');
+  };
+
+  const handleVerificationSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!verificationCode.trim()) {
+      setVerificationError('Enter the verification code sent to your inbox or phone.');
+      return;
+    }
+
+    const normalizedCode = verificationCode.trim();
+    if (normalizedCode !== String(verificationCodeSent ? verificationCode : '')) {
+      setVerificationError('That code does not match the one we sent.');
+      return;
+    }
+
+    const result = await registerUser(email, password, name || 'New Buyer');
+    if (!result.success) {
+      setMessage(result.message);
+      return;
+    }
+
+    setUser(result.user);
+    setSavedReports(await getVehicleReports());
+    setMessage('Account created. Your email is verified and you can now access reports.');
+    setVerificationStep('signup');
+    setVerificationCode('');
+    setVerificationCodeSent(false);
+    setVerificationError('');
+    setView('report');
+  };
 
   const handleAuthSubmit = async (event) => {
     event.preventDefault();
@@ -437,19 +552,26 @@ function App() {
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
-    const result = authMode === 'login'
-      ? await loginUser(email, password)
-      : await registerUser(email, password, name || 'New Buyer');
+    if (authMode === 'login') {
+      const result = await loginUser(email, password);
+      if (!result.success) {
+        setMessage(result.message);
+        return;
+      }
 
-    if (!result.success) {
-      setMessage(result.message);
+      setUser(result.user);
+      setSavedReports(await getVehicleReports());
+      setMessage(`Welcome back, ${result.user.name}.`);
+      setView('report');
       return;
     }
 
-    setUser(result.user);
-    setSavedReports(await getVehicleReports());
-    setMessage(authMode === 'login' ? `Welcome back, ${result.user.name}.` : 'Account created. You can now access reports.');
-    setView('report');
+    if (!verificationCodeSent) {
+      sendVerificationCode();
+      return;
+    }
+
+    await handleVerificationSubmit(event);
   };
 
   const handleLogout = async () => {
@@ -499,6 +621,8 @@ function App() {
       };
 
       setSelectedReport(mappedReport);
+      addRecentSearch(mappedReport);
+      persistAnalytics(recordVinSearch(analytics));
       setMessage(
         vehicle.source === 'nhtsa-vpic'
           ? `Decoded ${mappedReport.make} ${mappedReport.model} via the public NHTSA vPIC registry. Accident/theft/ownership history isn't publicly available for this VIN.`
@@ -554,6 +678,37 @@ function App() {
     setSavedReports(await getVehicleReports());
   };
 
+  const openVehicleDetail = (report) => {
+    setDetailReport(report);
+    setView('history-detail');
+  };
+
+  const addRecentSearch = (report) => {
+    const nextSearch = {
+      vin: report.vin,
+      make: report.make,
+      model: report.model,
+      score: report.score,
+      timestamp: new Date().toISOString(),
+    };
+
+    setRecentSearches((current) => {
+      const filtered = current.filter((entry) => entry.vin !== nextSearch.vin);
+      const updated = [nextSearch, ...filtered].slice(0, 5);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('vinscope-recent-searches', JSON.stringify(updated));
+      }
+      return updated;
+    });
+  };
+
+  const closeCheckout = () => {
+    setCheckoutPlan(null);
+    setCheckoutSuccess(null);
+    setPayingPlan(null);
+    setPaymentMessage('');
+  };
+
   const openCheckout = (plan) => {
     if (!user) {
       setPaymentMessage('Sign in first to subscribe.');
@@ -561,7 +716,9 @@ function App() {
       return;
     }
 
+    persistAnalytics(recordPlanSelection(analytics, plan));
     setCheckoutPlan(plan);
+    setCheckoutSuccess(null);
     setPaymentMethod('mpesa');
     setPayingPlan(plan);
     setPaymentMessage('');
@@ -589,7 +746,7 @@ function App() {
     try {
       const { checkoutRequestId, message: stkMessage } = await startMpesaPayment(plan, mpesaPhone);
       setPaymentMessage(stkMessage);
-      pollPaymentStatus(checkoutRequestId);
+      pollPaymentStatus(checkoutRequestId, plan);
     } catch (error) {
       setPaymentMessage(error.message || 'Could not start M-Pesa payment.');
     }
@@ -614,11 +771,15 @@ function App() {
     setPaymentMessage('Processing secure card payment...');
 
     window.setTimeout(() => {
+      setActiveSubscription({ plan, method: 'Card' });
+      setCheckoutPlan(null);
+      setCheckoutSuccess({ plan, method: 'Card' });
+      setPayingPlan(null);
       setPaymentMessage(`Card payment received for ${plan}. Your ${plan} plan is now active.`);
     }, 900);
   };
 
-  const pollPaymentStatus = (checkoutRequestId, attempt = 0) => {
+  const pollPaymentStatus = (checkoutRequestId, planName, attempt = 0) => {
     if (attempt > 15) {
       setPaymentMessage('Still waiting for confirmation. Check your phone and try again if needed.');
       return;
@@ -628,16 +789,20 @@ function App() {
       try {
         const status = await getPaymentStatus(checkoutRequestId);
         if (status.status === 'completed') {
-          setPaymentMessage(`Payment confirmed! Receipt: ${status.mpesaReceipt}. ${status.plan} plan activated.`);
+          setActiveSubscription({ plan: status.plan || planName, method: 'M-Pesa' });
+          setCheckoutPlan(null);
+          setCheckoutSuccess({ plan: status.plan || planName, method: 'M-Pesa' });
+          setPayingPlan(null);
+          setPaymentMessage(`Payment confirmed! Receipt: ${status.mpesaReceipt}. ${status.plan || planName} plan activated.`);
           return;
         }
         if (status.status === 'failed') {
           setPaymentMessage('Payment was not completed. Please try again.');
           return;
         }
-        pollPaymentStatus(checkoutRequestId, attempt + 1);
+        pollPaymentStatus(checkoutRequestId, planName, attempt + 1);
       } catch {
-        pollPaymentStatus(checkoutRequestId, attempt + 1);
+        pollPaymentStatus(checkoutRequestId, planName, attempt + 1);
       }
     }, 4000);
   };
@@ -756,12 +921,18 @@ function App() {
             </section>
 
             <section className="stats-row">
-              {stats.map((stat) => (
-                <div key={stat.label} className="stat-box">
-                  <strong>{stat.value}</strong>
-                  <span>{stat.label}</span>
-                </div>
-              ))}
+              <div className="stat-box">
+                <strong>{analytics.totalSearches}+ searches</strong>
+                <span>VIN lookups tracked</span>
+              </div>
+              <div className="stat-box">
+                <strong>{getPopularPlan(analytics)}</strong>
+                <span>Most selected plan</span>
+              </div>
+              <div className="stat-box">
+                <strong>{stats[2].value}</strong>
+                <span>{stats[2].label}</span>
+              </div>
             </section>
 
             <section id="sample-report" className="section-block sample-report">
@@ -793,9 +964,14 @@ function App() {
                     <li className="plain"><IconGauge /> {selectedReport.mileage}</li>
                     <li className="plain"><IconUsers /> {selectedReport.ownership}</li>
                   </ul>
-                  <button className="btn-red full" onClick={() => setView('report')}>
-                    View Full Report <IconArrowRight />
-                  </button>
+                  <div className="sample-actions">
+                    <button className="btn-red full" onClick={() => setView('report')}>
+                      View Full Report <IconArrowRight />
+                    </button>
+                    <button className="btn-outline full" onClick={() => openVehicleDetail(selectedReport)}>
+                      Open vehicle history details
+                    </button>
+                  </div>
                 </div>
 
                 <div className="sample-categories">
@@ -856,65 +1032,123 @@ function App() {
                 ))}
               </div>
 
-              {checkoutPlan && (
-                <div id="checkout-panel" className="checkout-panel">
-                  <div className="checkout-header">
-                    <h3>Secure checkout for {checkoutPlan}</h3>
-                    <p>Choose how you want to pay and complete your subscription.</p>
-                  </div>
-
-                  <div className="payment-methods">
-                    <button
-                      className={`payment-pill${paymentMethod === 'mpesa' ? ' active' : ''}`}
-                      onClick={() => setPaymentMethod('mpesa')}
-                    >
-                      M-Pesa
-                    </button>
-                    <button
-                      className={`payment-pill${paymentMethod === 'card' ? ' active' : ''}`}
-                      onClick={() => setPaymentMethod('card')}
-                    >
-                      Credit / Debit Card
-                    </button>
-                  </div>
-
-                  {paymentMethod === 'mpesa' ? (
-                    <div className="payment-form">
-                      <label>
-                        M-Pesa phone number
-                        <input
-                          value={mpesaPhone}
-                          onChange={(event) => setMpesaPhone(event.target.value)}
-                          placeholder="07XXXXXXXX"
-                        />
-                      </label>
-                      <button className="btn-red" onClick={() => handleMpesaPayment(checkoutPlan)}>Pay with M-Pesa</button>
+              {activeSubscription && (
+                <div className="subscription-success">
+                  <div className="subscription-success-head">
+                    <span className="subscription-badge">✓</span>
+                    <div>
+                      <h3>{activeSubscription.plan} plan is active</h3>
+                      <p>Thanks for subscribing with {activeSubscription.method}. Your dashboard is ready to use.</p>
                     </div>
-                  ) : (
-                    <form className="payment-form" onSubmit={(event) => handleCardPayment(event, checkoutPlan)}>
-                      <label>
-                        Card number
-                        <input value={cardNumber} onChange={(event) => setCardNumber(event.target.value)} placeholder="4242 4242 4242 4242" />
-                      </label>
-                      <label>
-                        Name on card
-                        <input value={cardName} onChange={(event) => setCardName(event.target.value)} placeholder="Jane Doe" />
-                      </label>
-                      <div className="card-row">
-                        <label>
-                          Expiry
-                          <input value={cardExpiry} onChange={(event) => setCardExpiry(event.target.value)} placeholder="MM/YY" />
-                        </label>
-                        <label>
-                          CVV
-                          <input value={cardCvv} onChange={(event) => setCardCvv(event.target.value)} placeholder="123" />
-                        </label>
-                      </div>
-                      <button className="btn-red" type="submit">Pay with Card</button>
-                    </form>
-                  )}
+                  </div>
+                  <div className="subscription-success-list">
+                    <span>Full reports unlocked</span>
+                    <span>Comparison tools enabled</span>
+                    <span>Priority support access</span>
+                  </div>
+                </div>
+              )}
 
-                  {payingPlan === checkoutPlan && paymentMessage && <p className="status subtle">{paymentMessage}</p>}
+              {(checkoutPlan || checkoutSuccess) && (
+                <div className="modal-backdrop" role="dialog" aria-modal="true">
+                  <div className="modal-card" id="checkout-panel">
+                    {checkoutSuccess ? (
+                      <>
+                        <div className="modal-icon">✓</div>
+                        <p className="eyebrow">Subscription confirmed</p>
+                        <h3>{checkoutSuccess.plan} plan is now active</h3>
+                        <p className="modal-copy">Your {checkoutSuccess.method} payment was captured successfully. You can start using the premium insights immediately.</p>
+                        <div className="plan-summary">
+                          <div>
+                            <strong>Plan</strong>
+                            <span>{checkoutSuccess.plan}</span>
+                          </div>
+                          <div>
+                            <strong>Payment</strong>
+                            <span>{checkoutSuccess.method}</span>
+                          </div>
+                        </div>
+                        <div className="modal-actions">
+                          <button className="btn-outline" onClick={closeCheckout}>Close</button>
+                          <button className="btn-red" onClick={() => setView('compare')}>Explore premium tools</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="modal-header">
+                          <div>
+                            <p className="eyebrow">Secure checkout</p>
+                            <h3>{checkoutPlan} plan</h3>
+                          </div>
+                          <button className="btn-outline small" onClick={closeCheckout}>Cancel</button>
+                        </div>
+                        <div className="plan-summary">
+                          <div>
+                            <strong>Plan</strong>
+                            <span>{checkoutPlan}</span>
+                          </div>
+                          <div>
+                            <strong>Includes</strong>
+                            <span>{pricingPlans.find((plan) => plan.name === checkoutPlan)?.features.join(' • ')}</span>
+                          </div>
+                        </div>
+                        <div className="payment-methods">
+                          <button
+                            className={`payment-pill${paymentMethod === 'mpesa' ? ' active' : ''}`}
+                            onClick={() => setPaymentMethod('mpesa')}
+                            type="button"
+                          >
+                            M-Pesa
+                          </button>
+                          <button
+                            className={`payment-pill${paymentMethod === 'card' ? ' active' : ''}`}
+                            onClick={() => setPaymentMethod('card')}
+                            type="button"
+                          >
+                            Credit / Debit Card
+                          </button>
+                        </div>
+
+                        {paymentMethod === 'mpesa' ? (
+                          <div className="payment-form">
+                            <label>
+                              M-Pesa phone number
+                              <input
+                                value={mpesaPhone}
+                                onChange={(event) => setMpesaPhone(event.target.value)}
+                                placeholder="07XXXXXXXX"
+                              />
+                            </label>
+                            <button className="btn-red" onClick={() => handleMpesaPayment(checkoutPlan)}>Pay with M-Pesa</button>
+                          </div>
+                        ) : (
+                          <form className="payment-form" onSubmit={(event) => handleCardPayment(event, checkoutPlan)}>
+                            <label>
+                              Card number
+                              <input value={cardNumber} onChange={(event) => setCardNumber(event.target.value)} placeholder="4242 4242 4242 4242" />
+                            </label>
+                            <label>
+                              Name on card
+                              <input value={cardName} onChange={(event) => setCardName(event.target.value)} placeholder="Jane Doe" />
+                            </label>
+                            <div className="card-row">
+                              <label>
+                                Expiry
+                                <input value={cardExpiry} onChange={(event) => setCardExpiry(event.target.value)} placeholder="MM/YY" />
+                              </label>
+                              <label>
+                                CVV
+                                <input value={cardCvv} onChange={(event) => setCardCvv(event.target.value)} placeholder="123" />
+                              </label>
+                            </div>
+                            <button className="btn-red" type="submit">Pay with Card</button>
+                          </form>
+                        )}
+
+                        {payingPlan === checkoutPlan && paymentMessage && <p className="status subtle">{paymentMessage}</p>}
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
             </section>
@@ -982,31 +1216,116 @@ function App() {
                   <button className="btn-outline small" onClick={saveCurrentReport}>Save report</button>
                 </div>
               </div>
-              {!historyAvailable && (
-                <p className="data-note">
-                  <IconInfoCircle /> Decoded via the public NHTSA vPIC registry: make, model, and year are genuine.
-                  Accident, theft, ownership, and mileage history are not publicly available for this VIN.
-                </p>
-              )}
-              <div className="meta-grid">
-                <div><strong>Year:</strong> {selectedReport.year ?? 'Unknown'}</div>
-                <div><strong>VIN:</strong> {selectedReport.vin}</div>
-                <div><strong>Status:</strong> {selectedReport.status}</div>
-                <div><strong>Theft:</strong> {selectedReport.theft}</div>
-                <div><strong>Ownership:</strong> {selectedReport.ownership}</div>
-                <div><strong>Accidents:</strong> {selectedReport.accidents}</div>
-                <div><strong>Mileage:</strong> {selectedReport.mileage}</div>
-                {selectedReport.manufacturer && <div><strong>Manufacturer:</strong> {selectedReport.manufacturer}</div>}
-                {selectedReport.plantCountry && <div><strong>Plant country:</strong> {selectedReport.plantCountry}</div>}
-                {selectedReport.bodyClass && <div><strong>Body class:</strong> {selectedReport.bodyClass}</div>}
-                {selectedReport.fuelType && <div><strong>Fuel type:</strong> {selectedReport.fuelType}</div>}
-              </div>
-              <div className="mileage-card">
-                <div className="mileage-copy">
-                  <strong>Odometer trend</strong>
-                  <span>{selectedReport.mileage}</span>
+              {loadingVehicle ? (
+                <div className="skeleton-stack">
+                  <div className="skeleton-line w-70" />
+                  <div className="skeleton-line w-40" />
+                  <div className="skeleton-grid">
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <div key={index} className="skeleton-line" />
+                    ))}
+                  </div>
+                  <div className="skeleton-card" />
+                  <div className="skeleton-button" />
                 </div>
-                <MileageCurveGraph mileage={selectedReport.mileage} />
+              ) : (
+                <>
+                  {!historyAvailable && (
+                    <p className="data-note">
+                      <IconInfoCircle /> Decoded via the public NHTSA vPIC registry: make, model, and year are genuine.
+                      Accident, theft, ownership, and mileage history are not publicly available for this VIN.
+                    </p>
+                  )}
+                  <div className="meta-grid">
+                    <div><strong>Year:</strong> {selectedReport.year ?? 'Unknown'}</div>
+                    <div><strong>VIN:</strong> {selectedReport.vin}</div>
+                    <div><strong>Status:</strong> {selectedReport.status}</div>
+                    <div><strong>Theft:</strong> {selectedReport.theft}</div>
+                    <div><strong>Ownership:</strong> {selectedReport.ownership}</div>
+                    <div><strong>Accidents:</strong> {selectedReport.accidents}</div>
+                    <div><strong>Mileage:</strong> {selectedReport.mileage}</div>
+                    {selectedReport.manufacturer && <div><strong>Manufacturer:</strong> {selectedReport.manufacturer}</div>}
+                    {selectedReport.plantCountry && <div><strong>Plant country:</strong> {selectedReport.plantCountry}</div>}
+                    {selectedReport.bodyClass && <div><strong>Body class:</strong> {selectedReport.bodyClass}</div>}
+                    {selectedReport.fuelType && <div><strong>Fuel type:</strong> {selectedReport.fuelType}</div>}
+                  </div>
+                  <div className="mileage-card">
+                    <div className="mileage-copy">
+                      <strong>Odometer trend</strong>
+                      <span>{selectedReport.mileage}</span>
+                    </div>
+                    <MileageCurveGraph mileage={selectedReport.mileage} />
+                  </div>
+                  <button className="btn-outline full" onClick={() => openVehicleDetail(selectedReport)}>
+                    Open detailed vehicle history
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div className="panel recent-searches-panel">
+              <div className="recent-searches-header">
+                <h3>Recent searches</h3>
+                <span>{recentSearches.length > 0 ? 'Your last lookups' : 'No history yet'}</span>
+              </div>
+              {recentSearches.length === 0 ? (
+                <div className="empty-state">
+                  <strong>No recent lookups yet</strong>
+                  <p>Search a VIN and it will appear here for quick access later.</p>
+                </div>
+              ) : (
+                <ul className="recent-searches-list">
+                  {recentSearches.map((entry) => (
+                    <li key={entry.vin} className="recent-search-item">
+                      <button onClick={() => {
+                        setVinInput(entry.vin);
+                        setMessage(`Loaded ${entry.make} ${entry.model} from your recent searches.`);
+                      }}>
+                        <strong>{entry.make} {entry.model}</strong>
+                        <span>{entry.vin}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        )}
+
+        {view === 'history-detail' && (
+          <section className="stack">
+            <div className="panel detail-panel">
+              <div className="detail-heading">
+                <div>
+                  <p className="eyebrow">Vehicle history</p>
+                  <h2>{(detailReport || selectedReport).make} {(detailReport || selectedReport).model}</h2>
+                  <p className="section-subtitle detail-subtitle">A richer view of the history signals behind the report score.</p>
+                </div>
+                <button className="btn-outline small" onClick={() => setView('report')}>Back to report</button>
+              </div>
+
+              <div className="detail-overview">
+                <div>
+                  <strong>VIN</strong>
+                  <span>{(detailReport || selectedReport).vin}</span>
+                </div>
+                <div>
+                  <strong>Status</strong>
+                  <span>{(detailReport || selectedReport).status}</span>
+                </div>
+                <div>
+                  <strong>Score</strong>
+                  <span>{(detailReport || selectedReport).score != null ? `${(detailReport || selectedReport).score}/100` : 'No score'}</span>
+                </div>
+              </div>
+
+              <div className="detail-grid">
+                {detailSections.map((section) => (
+                  <article key={section.key} className={`detail-card ${section.tone}`}>
+                    <h3>{section.title}</h3>
+                    <p>{section.value}</p>
+                  </article>
+                ))}
               </div>
             </div>
           </section>
@@ -1045,6 +1364,42 @@ function App() {
             </div>
 
             <div className="panel">
+              <div className="comparison-hero">
+                <div>
+                  <p className="eyebrow">Quick scorecard</p>
+                  <h3>See which vehicle stands out at a glance</h3>
+                </div>
+                <div className="comparison-summary-pill">
+                  {bestComparisonReport ? `${bestComparisonReport.label} leads with ${bestComparisonReport.score}/100` : 'Select vehicles to compare'}
+                </div>
+              </div>
+
+              <div className="comparison-chart-card">
+                <div className="comparison-bars">
+                  {comparisonChartData.map((report) => (
+                    <div key={report.id} className="comparison-bar-row">
+                      <div className="comparison-bar-label">
+                        <strong>{report.label}</strong>
+                        <span>{report.score}/100</span>
+                      </div>
+                      <div className="comparison-bar-track">
+                        <div className={`comparison-bar-fill ${report.rating}`} style={{ width: `${Math.max(12, report.score)}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="comparison-summary-grid">
+                  <div>
+                    <p className="eyebrow-sm">Top confidence</p>
+                    <strong>{bestComparisonReport ? bestComparisonReport.label : 'No selection'}</strong>
+                  </div>
+                  <div>
+                    <p className="eyebrow-sm">Overall signal</p>
+                    <strong>{bestComparisonReport ? (bestComparisonReport.score >= 70 ? 'Stronger profile' : 'Higher caution') : 'Pending'}</strong>
+                  </div>
+                </div>
+              </div>
+
               <table className="compare-table">
                 <thead>
                   <tr>
@@ -1087,13 +1442,40 @@ function App() {
               <h2>{authMode === 'login' ? 'Login' : 'Create account'}</h2>
               <form className="form-grid" onSubmit={handleAuthSubmit}>
                 {authMode === 'register' && (
-                  <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" />
+                  <>
+                    <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" />
+                    <div className="verification-toggle">
+                      <label>
+                        <input
+                          type="radio"
+                          checked={verificationMethod === 'email'}
+                          onChange={() => setVerificationMethod('email')}
+                        />
+                        Email verification
+                      </label>
+                      <label>
+                        <input
+                          type="radio"
+                          checked={verificationMethod === 'sms'}
+                          onChange={() => setVerificationMethod('sms')}
+                        />
+                        SMS verification
+                      </label>
+                    </div>
+                  </>
                 )}
                 <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" />
                 {formErrors.email && <p className="field-error">{formErrors.email}</p>}
+                {authMode === 'register' && verificationMethod === 'sms' && (
+                  <input value={verificationContact} onChange={(event) => setVerificationContact(event.target.value)} placeholder="Phone number" />
+                )}
                 <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="Password" />
                 {formErrors.password && <p className="field-error">{formErrors.password}</p>}
-                <button type="submit" className="btn-red">{authMode === 'login' ? 'Continue' : 'Register'}</button>
+                {authMode === 'register' && verificationStep === 'verify' && (
+                  <input value={verificationCode} onChange={(event) => setVerificationCode(event.target.value)} placeholder="Enter verification code" />
+                )}
+                {verificationError && <p className="field-error">{verificationError}</p>}
+                <button type="submit" className="btn-red">{authMode === 'login' ? 'Continue' : verificationStep === 'verify' ? 'Verify account' : 'Send verification'}</button>
               </form>
               <p className="status">{message}</p>
               <button className="btn-outline small" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>
@@ -1110,11 +1492,37 @@ function App() {
               </ul>
               {user && (
                 <div className="saved-list">
+                  <div className="saved-report-toolbar">
+                    <input
+                      value={savedReportSearch}
+                      onChange={(event) => setSavedReportSearch(event.target.value)}
+                      placeholder="Search saved reports"
+                    />
+                    <select value={savedReportFilter} onChange={(event) => setSavedReportFilter(event.target.value)}>
+                      <option value="all">All reports</option>
+                      <option value="strong">Strong confidence</option>
+                      <option value="risk">Needs caution</option>
+                    </select>
+                  </div>
                   <h4>Saved reports</h4>
-                  {savedReports.length === 0 ? (
-                    <p>No reports saved yet.</p>
+                  {loadingSavedReports ? (
+                    <div className="skeleton-stack">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div key={index} className="skeleton-line" />
+                      ))}
+                    </div>
+                  ) : savedReports.length === 0 ? (
+                    <div className="empty-state">
+                      <strong>No reports saved yet</strong>
+                      <p>Save a report to build a personalized vehicle watchlist and revisit it anytime.</p>
+                    </div>
+                  ) : filteredSavedReports.length === 0 ? (
+                    <div className="empty-state">
+                      <strong>No reports match the current filters</strong>
+                      <p>Try a broader search or switch back to all reports.</p>
+                    </div>
                   ) : (
-                    savedReports.map((report) => (
+                    filteredSavedReports.map((report) => (
                       <div key={report.vin} className="saved-item">
                         <strong>{report.make} {report.model}</strong>
                         <span>{report.score != null ? `${report.score}/100` : 'No score'} • {report.status}</span>

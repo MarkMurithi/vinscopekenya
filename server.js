@@ -277,9 +277,14 @@ const initializeDatabase = async () => {
       email VARCHAR(255) UNIQUE NOT NULL,
       password_hash VARCHAR(255) NOT NULL,
       name VARCHAR(150) NOT NULL,
+      is_verified BOOLEAN NOT NULL DEFAULT false,
+      verification_method VARCHAR(20) NOT NULL DEFAULT 'email',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT false;');
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_method VARCHAR(20) NOT NULL DEFAULT 'email';");
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS saved_reports (
@@ -465,13 +470,13 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
 
     const passwordHash = await hashPassword(password);
     const { rows } = await pool.query(
-      'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name',
-      [normalizedEmail, passwordHash, (name || '').trim() || 'Vinscope User']
+      'INSERT INTO users (email, password_hash, name, is_verified, verification_method) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, is_verified, verification_method',
+      [normalizedEmail, passwordHash, (name || '').trim() || 'Vinscope User', true, 'email']
     );
 
     const user = rows[0];
     setAuthCookie(res, signToken({ id: user.id, email: user.email }));
-    return res.status(201).json({ user });
+    return res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, isVerified: user.is_verified, verificationMethod: user.verification_method } });
   } catch (error) {
     console.error('Registration failed', error);
     return res.status(500).json({ error: 'Registration failed. Please try again.' });
@@ -489,7 +494,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      'SELECT id, email, name, password_hash FROM users WHERE email = $1',
+      'SELECT id, email, name, password_hash, is_verified, verification_method FROM users WHERE email = $1',
       [normalizedEmail]
     );
     const user = rows[0];
@@ -500,7 +505,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
 
     setAuthCookie(res, signToken({ id: user.id, email: user.email }));
-    return res.json({ user: { id: user.id, email: user.email, name: user.name } });
+    return res.json({ user: { id: user.id, email: user.email, name: user.name, isVerified: user.is_verified, verificationMethod: user.verification_method } });
   } catch (error) {
     console.error('Login failed', error);
     return res.status(500).json({ error: 'Login failed. Please try again.' });
@@ -513,7 +518,7 @@ app.post('/api/auth/logout', (_req, res) => {
 });
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT id, email, name FROM users WHERE id = $1', [req.user.id]);
+  const { rows } = await pool.query('SELECT id, email, name, is_verified, verification_method FROM users WHERE id = $1', [req.user.id]);
   if (!rows[0]) {
     return res.status(404).json({ error: 'User not found' });
   }

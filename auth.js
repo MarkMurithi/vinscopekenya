@@ -1,15 +1,19 @@
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-insecure-secret-change-me';
+dotenv.config();
+
+const configuredJwtSecret = process.env.JWT_SECRET?.trim();
+const fallbackJwtSecret = process.env.NODE_ENV === 'production'
+  ? crypto.randomBytes(32).toString('hex')
+  : 'dev-insecure-secret-change-me';
+const JWT_SECRET = configuredJwtSecret || fallbackJwtSecret;
 const TOKEN_EXPIRY = '7d';
 const TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const AUTH_COOKIE_NAME = 'vinscope_token';
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
-  console.warn('WARNING: JWT_SECRET is not set. Using an insecure default - set JWT_SECRET in production.');
-}
 
 export function hashPassword(password) {
   return bcrypt.hash(password, 10);
