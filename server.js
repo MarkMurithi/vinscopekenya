@@ -37,9 +37,16 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(distDir));
 
-// General API rate limit, plus a stricter limit on auth/payment endpoints to reduce brute force / abuse.
+// General API rate limit, plus separate throttling for login and registration to reduce brute force / abuse.
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false });
-const authLimiter = rateLimit({
+const registerLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many registration attempts. Please try again later.' },
+});
+const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   standardHeaders: true,
@@ -305,7 +312,7 @@ app.post('/api/vehicles', requireAuth, async (req, res) => {
 // Auth
 // ---------------------------------------------------------------------------
 
-app.post('/api/auth/register', authLimiter, async (req, res) => {
+app.post('/api/auth/register', registerLimiter, async (req, res) => {
   const { email, password, name } = req.body || {};
 
   if (!email || !password) {
@@ -341,7 +348,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', authLimiter, async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body || {};
 
   if (!email || !password) {
