@@ -3,6 +3,167 @@ import './index.css';
 import { getVehicleReports, loginUser, registerUser, saveVehicleReport } from './services/mockApi';
 import { lookupVehicleByVin, pingVehicleApi } from './services/vehicleApi';
 
+function IconLogo(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6l7-3z" />
+      <path d="M8.5 13.5l1.8-3.5a1 1 0 0 1 .9-.6h1.6a1 1 0 0 1 .9.6l1.8 3.5" />
+      <path d="M8.5 13.5h7v1.6a.7.7 0 0 1-.7.7h-.4a.7.7 0 0 1-.7-.7v-.4H10.3v.4a.7.7 0 0 1-.7.7h-.4a.7.7 0 0 1-.7-.7v-1.6z" />
+    </svg>
+  );
+}
+
+function IconCar(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 13l1.5-4.5A2 2 0 0 1 6.4 7h11.2a2 2 0 0 1 1.9 1.5L21 13" />
+      <path d="M3 13h18v4a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-4z" />
+      <circle cx="7.5" cy="17.6" r="1.5" />
+      <circle cx="16.5" cy="17.6" r="1.5" />
+    </svg>
+  );
+}
+
+function IconLock(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
+}
+
+function IconDatabase(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <ellipse cx="12" cy="5.5" rx="8" ry="3" />
+      <path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
+      <path d="M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
+    </svg>
+  );
+}
+
+function IconClock(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.5v5l3.2 2" />
+    </svg>
+  );
+}
+
+function IconDocument(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M7 3.5h6.5L18 8v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z" />
+      <path d="M13.5 3.5V8H18" />
+      <path d="M9 12.5h6M9 15.5h6M9 9.5h1.5" />
+    </svg>
+  );
+}
+
+function IconUserShield(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 3l6.5 2.6v5c0 4.6-3 7.9-6.5 9.9-3.5-2-6.5-5.3-6.5-9.9v-5L12 3z" />
+      <path d="M9.3 12.2l1.9 1.9 3.5-3.7" />
+    </svg>
+  );
+}
+
+function IconCheckCircle(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12.3l2.6 2.6L16 9.5" />
+    </svg>
+  );
+}
+
+function IconWarningCircle(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.5v5.2" />
+      <circle cx="12" cy="16" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function IconGauge(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M4.5 15.5a7.5 7.5 0 1 1 15 0" />
+      <path d="M12 15.5l2.6-3.6" />
+      <circle cx="12" cy="15.5" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function IconUsers(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="9" cy="8.2" r="3" />
+      <path d="M3.3 20c0-3.3 2.6-6 5.7-6s5.7 2.7 5.7 6" />
+      <circle cx="17.2" cy="9" r="2.3" />
+      <path d="M15.8 20c.2-2.5 1.7-4.6 3.9-5.3" />
+    </svg>
+  );
+}
+
+function IconArrowRight(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M5 12h13" />
+      <path d="M13 6l6 6-6 6" />
+    </svg>
+  );
+}
+
+function CitySkyline() {
+  return (
+    <svg className="hero-skyline" viewBox="0 0 900 220" preserveAspectRatio="none" aria-hidden="true">
+      <rect x="0" y="140" width="60" height="80" fill="rgba(255,255,255,0.06)" />
+      <rect x="70" y="110" width="50" height="110" fill="rgba(255,255,255,0.07)" />
+      <rect x="130" y="150" width="70" height="70" fill="rgba(255,255,255,0.05)" />
+      <rect x="215" y="90" width="34" height="130" fill="rgba(255,255,255,0.08)" />
+      <rect x="260" y="60" width="26" height="20" fill="rgba(255,255,255,0.08)" />
+      <circle cx="273" cy="52" r="10" fill="rgba(255,255,255,0.08)" />
+      <rect x="300" y="120" width="60" height="100" fill="rgba(255,255,255,0.06)" />
+      <rect x="370" y="150" width="90" height="70" fill="rgba(255,255,255,0.05)" />
+      <rect x="470" y="100" width="40" height="120" fill="rgba(255,255,255,0.07)" />
+      <rect x="520" y="160" width="55" height="60" fill="rgba(255,255,255,0.05)" />
+      <rect x="590" y="130" width="45" height="90" fill="rgba(255,255,255,0.06)" />
+      <rect x="650" y="165" width="80" height="55" fill="rgba(255,255,255,0.05)" />
+      <rect x="740" y="120" width="36" height="100" fill="rgba(255,255,255,0.07)" />
+      <rect x="790" y="150" width="60" height="70" fill="rgba(255,255,255,0.05)" />
+      <rect x="860" y="170" width="40" height="50" fill="rgba(255,255,255,0.05)" />
+    </svg>
+  );
+}
+
+function HeroCar() {
+  return (
+    <svg className="hero-car" viewBox="0 0 260 130" aria-hidden="true">
+      <ellipse cx="130" cy="112" rx="105" ry="10" fill="rgba(0,0,0,0.18)" />
+      <path
+        d="M18 90 L28 55 A18 18 0 0 1 45 42 L92 42 L112 22 L182 22 L206 42 L228 42 A18 18 0 0 1 245 55 L252 90 Z"
+        fill="#f4f6fb"
+        stroke="#c7ccd8"
+        strokeWidth="2"
+      />
+      <path d="M100 42 L116 26 L176 26 L196 42 Z" fill="#dfe6f2" stroke="#c7ccd8" strokeWidth="2" />
+      <line x1="146" y1="26" x2="146" y2="42" stroke="#c7ccd8" strokeWidth="2" />
+      <circle cx="66" cy="94" r="19" fill="#20293b" />
+      <circle cx="66" cy="94" r="8" fill="#8b93a7" />
+      <circle cx="198" cy="94" r="19" fill="#20293b" />
+      <circle cx="198" cy="94" r="8" fill="#8b93a7" />
+      <rect x="18" y="66" width="18" height="8" rx="3" fill="#e63946" />
+      <rect x="228" y="66" width="18" height="8" rx="3" fill="#ffb703" />
+    </svg>
+  );
+}
+
 const sampleReports = [
   {
     id: 1,
@@ -45,11 +206,18 @@ const sampleReports = [
   },
 ];
 
-const highlightCards = [
-  { title: 'Damage & repairs', text: 'Reveal structural or cosmetic repairs and prior incidents.' },
-  { title: 'Mileage checks', text: 'Validate odometer history and spot suspicious inconsistencies.' },
-  { title: 'Ownership history', text: 'Understand how many owners the vehicle has had over time.' },
-  { title: 'Theft & alerts', text: 'Surface theft flags and high-risk indicators before purchase.' },
+const whyChooseFeatures = [
+  { icon: IconDatabase, accent: 'green', title: 'Reliable Data Sources', text: 'Verified information pulled from trusted registries and partner databases.' },
+  { icon: IconClock, accent: 'red', title: 'Easy To Use', text: 'Get a vehicle profile in seconds with a simple VIN search.' },
+  { icon: IconDocument, accent: 'navy', title: 'Comprehensive Reports', text: 'Accidents, theft, ownership, and mileage history in one report.' },
+  { icon: IconUserShield, accent: 'red', title: 'Buyer Protection', text: 'Spot red flags early and avoid costly, risky purchases.' },
+];
+
+const reportCategories = [
+  { icon: IconCar, label: 'Accident History' },
+  { icon: IconLock, label: 'Theft Check' },
+  { icon: IconGauge, label: 'Odometer Readings' },
+  { icon: IconUsers, label: 'Ownership History' },
 ];
 
 const benefits = [
@@ -123,6 +291,18 @@ function App() {
     () => sampleReports.filter((report) => comparisonIds.includes(report.id)),
     [comparisonIds]
   );
+
+  const goToSection = (id) => {
+    setView('home');
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const openAuth = (mode) => {
+    setAuthMode(mode);
+    setView('account');
+  };
 
   const handleAuthSubmit = (event) => {
     event.preventDefault();
@@ -231,52 +411,83 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand-group">
-          <div className="brand-mark">VK</div>
-          <div>
-            <p className="brand">Vinscope Kenya</p>
-            <span className="brand-subtitle">Vehicle history intelligence</span>
-          </div>
+        <div className="brand-group" onClick={() => setView('home')} role="button" tabIndex={0}>
+          <div className="brand-mark"><IconLogo /></div>
+          <p className="brand">
+            <span className="brand-navy">VinScope</span> <span className="brand-red">KENYA</span>
+          </p>
         </div>
         <nav className="nav-links" aria-label="Main navigation">
-          <button onClick={() => setView('home')}>Home</button>
-          <button onClick={() => setView('report')}>Reports</button>
+          <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}>Home</button>
+          <button onClick={() => goToSection('how-it-works')}>How It Works</button>
+          <button onClick={() => goToSection('features')}>Features</button>
           <button onClick={() => setView('compare')}>Compare</button>
-          <button onClick={() => setView('account')}>Account</button>
+          <button onClick={() => goToSection('faq')}>FAQ</button>
+          <button onClick={() => goToSection('contact')}>Contact</button>
         </nav>
+        <div className="auth-buttons">
+          <button className="btn-outline" onClick={() => openAuth('login')}>Login</button>
+          <button className="btn-red" onClick={() => openAuth('register')}>Sign Up</button>
+        </div>
       </header>
 
       <main className="page">
         {view === 'home' && (
           <>
-            <section className="hero-card">
-              <div className="hero-copy">
-                <p className="eyebrow">Trust data, not words</p>
-                <h1>Check any vehicle’s history in seconds.</h1>
-                <p className="subtitle">
-                  Vinscope Kenya gives buyers and sellers a clearer view of a used vehicle through VIN decoding, verified signals, and a risk-focused report experience.
-                </p>
-                <form className="hero-search" onSubmit={handleLookup}>
-                  <input
-                    value={vinInput}
-                    onChange={(event) => setVinInput(event.target.value)}
-                    placeholder="Enter VIN"
-                  />
-                  <button type="submit" className="primary">Get report</button>
-                </form>
-                <p className="status">{message}</p>
-                <p className="status subtle">{loadingVehicle ? 'Loading vehicle details...' : apiStatus}</p>
-              </div>
-              <div className="hero-side">
-                <div className="hero-side-card">
-                  <h3>What the report can uncover</h3>
-                  <ul>
-                    <li>Accident and repair history</li>
-                    <li>Theft or stolen status alerts</li>
-                    <li>Ownership inconsistencies</li>
-                    <li>Mileage irregularities</li>
-                  </ul>
+            <section id="hero" className="hero">
+              <CitySkyline />
+              <div className="hero-inner">
+                <div className="hero-copy">
+                  <h1>Check a Vehicle's<br />History in Seconds</h1>
+                  <p className="subtitle">
+                    Enter any VIN to instantly uncover accident records, theft alerts, ownership history, and mileage
+                    accuracy before you buy or sell in Kenya.
+                  </p>
+                  <form className="hero-search" onSubmit={handleLookup}>
+                    <input
+                      value={vinInput}
+                      onChange={(event) => setVinInput(event.target.value)}
+                      placeholder="Enter VIN Number"
+                    />
+                    <button type="submit" className="btn-red">Check Now</button>
+                  </form>
+                  <p className="status">{message}</p>
+                  <p className="status subtle">{loadingVehicle ? 'Loading vehicle details...' : apiStatus}</p>
                 </div>
+                <div className="hero-media">
+                  <HeroCar />
+                </div>
+              </div>
+            </section>
+
+            <section className="hero-badges">
+              <button className="badge-card" onClick={() => goToSection('sample-report')}>
+                <span className="badge-icon"><IconCar /></span>
+                <span>
+                  <strong>Accident Records</strong>
+                  <em>Check for past collisions and repairs</em>
+                </span>
+              </button>
+              <button className="badge-card" onClick={() => goToSection('sample-report')}>
+                <span className="badge-icon"><IconLock /></span>
+                <span>
+                  <strong>Theft &amp; Ownership</strong>
+                  <em>Verify theft status and ownership history</em>
+                </span>
+              </button>
+            </section>
+
+            <section id="features" className="section-block why-choose">
+              <h2>Why Choose VinScope Kenya?</h2>
+              <p className="section-subtitle">Everything a buyer needs to make a confident, informed decision.</p>
+              <div className="cards why-cards">
+                {whyChooseFeatures.map((item) => (
+                  <article key={item.title} className="why-card">
+                    <span className={`why-icon icon-${item.accent}`}><item.icon /></span>
+                    <h3>{item.title}</h3>
+                    <p>{item.text}</p>
+                  </article>
+                ))}
               </div>
             </section>
 
@@ -289,13 +500,58 @@ function App() {
               ))}
             </section>
 
-            <section className="section-block">
-              <h2>Why smart buyers start with Vinscope Kenya</h2>
+            <section id="sample-report" className="section-block sample-report">
+              <div className="section-heading">
+                <span className="line" />
+                <h2>Sample Report</h2>
+                <span className="line" />
+              </div>
+              <p className="section-subtitle">See what a full VinScope Kenya vehicle history report looks like.</p>
+              <div className="sample-grid">
+                <div className="sample-card">
+                  <div className="sample-card-head">
+                    <div className="sample-thumb"><IconCar /></div>
+                    <div>
+                      <p className="eyebrow-sm">Vehicle History Report</p>
+                      <h3>{selectedReport.make} {selectedReport.model}</h3>
+                      <p className="vin-line">VIN: {selectedReport.vin}</p>
+                    </div>
+                  </div>
+                  <ul className="sample-checklist">
+                    <li className={/no/i.test(selectedReport.theft) ? 'ok' : 'warn'}>
+                      {/no/i.test(selectedReport.theft) ? <IconCheckCircle /> : <IconWarningCircle />}
+                      {selectedReport.theft}
+                    </li>
+                    <li className={/no|not/i.test(selectedReport.accidents) ? 'ok' : 'warn'}>
+                      {/no|not/i.test(selectedReport.accidents) ? <IconCheckCircle /> : <IconWarningCircle />}
+                      {selectedReport.accidents}
+                    </li>
+                    <li className="plain"><IconGauge /> {selectedReport.mileage}</li>
+                    <li className="plain"><IconUsers /> {selectedReport.ownership}</li>
+                  </ul>
+                  <button className="btn-red full" onClick={() => setView('report')}>
+                    View Full Report <IconArrowRight />
+                  </button>
+                </div>
+
+                <div className="sample-categories">
+                  {reportCategories.map((cat) => (
+                    <div key={cat.label} className="category-row">
+                      <span className="category-icon"><cat.icon /></span>
+                      <span>{cat.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section id="how-it-works" className="section-block">
+              <h2>How It Works</h2>
               <div className="cards">
-                {highlightCards.map((item) => (
-                  <article key={item.title}>
-                    <h3>{item.title}</h3>
-                    <p>{item.text}</p>
+                {steps.map((step) => (
+                  <article key={step.title}>
+                    <h3>{step.title}</h3>
+                    <p>{step.text}</p>
                   </article>
                 ))}
               </div>
@@ -312,18 +568,6 @@ function App() {
               <div className="benefits-list">
                 {benefits.map((benefit) => (
                   <div key={benefit} className="benefit-item">{benefit}</div>
-                ))}
-              </div>
-            </section>
-
-            <section className="section-block">
-              <h2>How it works</h2>
-              <div className="cards">
-                {steps.map((step) => (
-                  <article key={step.title}>
-                    <h3>{step.title}</h3>
-                    <p>{step.text}</p>
-                  </article>
                 ))}
               </div>
             </section>
@@ -358,13 +602,16 @@ function App() {
               </div>
             </section>
 
-            <section className="section-block cta-banner">
-              <h2>Ready to explore the concept?</h2>
+            <section className="cta-banner">
+              <h2>Get Started with VinScope Kenya Today!</h2>
               <p>Vinscope Kenya can grow into a full, market-ready vehicle-history platform for Kenyan buyers and sellers.</p>
-              <button className="primary" onClick={() => setView('report')}>Try the demo</button>
+              <div className="cta-actions">
+                <button className="btn-white" onClick={() => goToSection('hero')}>Check VIN Now</button>
+                <button className="btn-outline-white" onClick={() => openAuth('register')}>Sign Up Free</button>
+              </div>
             </section>
 
-            <section className="section-block">
+            <section id="faq" className="section-block">
               <h2>Frequently asked questions</h2>
               <div className="faq-list">
                 {faqs.map((faq) => (
@@ -389,7 +636,7 @@ function App() {
                   onChange={(event) => setVinInput(event.target.value)}
                   placeholder="Enter VIN"
                 />
-                <button type="submit" className="primary">Load report</button>
+                <button type="submit" className="btn-red">Load report</button>
               </form>
               <p className="status">{message}</p>
               <p className="status subtle">{loadingVehicle ? 'Loading vehicle details...' : apiStatus}</p>
@@ -403,7 +650,7 @@ function App() {
                 </div>
                 <div className="report-actions">
                   <span className="score-pill">{selectedReport.score}/100</span>
-                  <button className="secondary small" onClick={saveCurrentReport}>Save report</button>
+                  <button className="btn-outline small" onClick={saveCurrentReport}>Save report</button>
                 </div>
               </div>
               <div className="meta-grid">
@@ -484,10 +731,10 @@ function App() {
                 )}
                 <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" />
                 <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="Password" />
-                <button type="submit" className="primary">{authMode === 'login' ? 'Continue' : 'Register'}</button>
+                <button type="submit" className="btn-red">{authMode === 'login' ? 'Continue' : 'Register'}</button>
               </form>
               <p className="status">{message}</p>
-              <button className="secondary small" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>
+              <button className="btn-outline small" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>
                 Switch to {authMode === 'login' ? 'register' : 'login'}
               </button>
             </div>
@@ -519,19 +766,28 @@ function App() {
         )}
       </main>
 
-      <footer className="footer">
-        <div className="footer-card">
-          <div>
-            <p className="brand">Vinscope Kenya</p>
-            <p>A vehicle-history platform concept for smarter buying in Kenya.</p>
+      <footer id="contact" className="footer">
+        <div className="footer-inner">
+          <div className="footer-brand">
+            <div className="brand-mark small"><IconLogo /></div>
+            <p className="brand"><span className="brand-navy">VinScope</span> <span className="brand-red">KENYA</span></p>
           </div>
           <div className="footer-links">
             <button onClick={() => setView('home')}>Home</button>
-            <button onClick={() => setView('report')}>Reports</button>
+            <button onClick={() => goToSection('features')}>Features</button>
             <button onClick={() => setView('compare')}>Compare</button>
-            <button onClick={() => setView('account')}>Account</button>
+            <button onClick={() => openAuth('login')}>Account</button>
+            <a href="#privacy">Privacy Policy</a>
+            <a href="#terms">Terms of Service</a>
+          </div>
+          <div className="footer-social" aria-label="Social links">
+            <a href="#" aria-label="Facebook"><span>f</span></a>
+            <a href="#" aria-label="Twitter"><span>t</span></a>
+            <a href="#" aria-label="Instagram"><span>i</span></a>
+            <a href="#" aria-label="LinkedIn"><span>in</span></a>
           </div>
         </div>
+        <p className="footer-copy">© {new Date().getFullYear()} VinScope Kenya. A vehicle-history platform concept for smarter buying in Kenya.</p>
       </footer>
     </div>
   );
