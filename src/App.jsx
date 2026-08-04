@@ -199,9 +199,9 @@ function MileageCurveGraph({ mileage }) {
       ? [18, 30, 46, 59, 72, 84]
       : [22, 35, 47, 53, 60, 66];
 
-  const width = 190;
-  const height = 110;
-  const padding = 12;
+  const width = 150;
+  const height = 84;
+  const padding = 10;
   const points = values.map((value, index) => ({
     x: padding + (index / (values.length - 1)) * (width - padding * 2),
     y: height - padding - (value / 100) * (height - padding * 2),
