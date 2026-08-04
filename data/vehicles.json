@@ -1,0 +1,41 @@
+[
+  {
+    "vin": "JTEBU5JR3K5001234",
+    "make": "Toyota",
+    "model": "Prado",
+    "year": 2017,
+    "status": "Verified",
+    "theft": "No record",
+    "ownership": "Consistent",
+    "accidents": "1 reported incident",
+    "mileage": "Mileage appears consistent",
+    "score": 88,
+    "source": "local-data-store"
+  },
+  {
+    "vin": "WVWZZZ1JZ3W123456",
+    "make": "Volkswagen",
+    "model": "Golf",
+    "year": 2013,
+    "status": "Verified",
+    "theft": "No record",
+    "ownership": "Consistent",
+    "accidents": "0 reported incidents",
+    "mileage": "Mileage appears consistent",
+    "score": 91,
+    "source": "local-data-store"
+  },
+  {
+    "vin": "1HGCM82633A004352",
+    "make": "Honda",
+    "model": "Accord",
+    "year": 2003,
+    "status": "Needs review",
+    "theft": "1 stolen report",
+    "ownership": "Inconsistent",
+    "accidents": "2 reported incidents",
+    "mileage": "Mileage varies from records",
+    "score": 57,
+    "source": "local-data-store"
+  }
+]
