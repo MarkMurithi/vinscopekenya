@@ -90,6 +90,16 @@ function IconWarningCircle(props) {
   );
 }
 
+function IconInfoCircle(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 10.5v5.2" />
+      <circle cx="12" cy="7.8" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function IconGauge(props) {
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -177,6 +187,8 @@ const sampleReports = [
     accidents: '1 reported incident',
     mileage: 'Mileage appears consistent',
     score: 88,
+    source: 'demo',
+    historyAvailable: true,
   },
   {
     id: 2,
@@ -190,6 +202,8 @@ const sampleReports = [
     accidents: '2 reported incidents',
     mileage: 'Mileage mismatch detected',
     score: 62,
+    source: 'demo',
+    historyAvailable: true,
   },
   {
     id: 3,
@@ -203,6 +217,8 @@ const sampleReports = [
     accidents: 'No major accidents',
     mileage: 'Mileage consistent',
     score: 93,
+    source: 'demo',
+    historyAvailable: true,
   },
 ];
 
@@ -361,12 +377,30 @@ function App() {
         accidents: vehicle.accidents,
         mileage: vehicle.mileage,
         score: vehicle.score,
+        source: vehicle.source,
+        historyAvailable: vehicle.historyAvailable,
+        manufacturer: vehicle.manufacturer,
+        plantCountry: vehicle.plantCountry,
+        bodyClass: vehicle.bodyClass,
+        vehicleType: vehicle.vehicleType,
+        fuelType: vehicle.fuelType,
+        engineCylinders: vehicle.engineCylinders,
+        displacementL: vehicle.displacementL,
       };
 
       setSelectedReport(mappedReport);
-      setMessage(`Vehicle data retrieved for ${mappedReport.make} ${mappedReport.model}.`);
+      setMessage(
+        vehicle.source === 'nhtsa-vpic'
+          ? `Decoded ${mappedReport.make} ${mappedReport.model} via the public NHTSA vPIC registry. Accident/theft/ownership history isn't publicly available for this VIN.`
+          : `Vehicle data retrieved for ${mappedReport.make} ${mappedReport.model}.`
+      );
       setView('report');
     } catch (error) {
+      if (error.status === 400) {
+        setMessage(error.message);
+        return;
+      }
+
       setSelectedReport(sampleReports[0]);
       setMessage(`Unable to fetch live vehicle data. Showing the demo report instead. ${error.message}`);
       setView('report');
@@ -407,6 +441,11 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  const historyAvailable = selectedReport.historyAvailable !== false;
+  const theftStatus = !historyAvailable ? 'unknown' : /no/i.test(selectedReport.theft) ? 'ok' : 'warn';
+  const accidentStatus = !historyAvailable ? 'unknown' : /no|not/i.test(selectedReport.accidents) ? 'ok' : 'warn';
+  const statusIcon = (status) => (status === 'unknown' ? <IconInfoCircle /> : status === 'ok' ? <IconCheckCircle /> : <IconWarningCircle />);
 
   return (
     <div className="app-shell">
@@ -518,12 +557,12 @@ function App() {
                     </div>
                   </div>
                   <ul className="sample-checklist">
-                    <li className={/no/i.test(selectedReport.theft) ? 'ok' : 'warn'}>
-                      {/no/i.test(selectedReport.theft) ? <IconCheckCircle /> : <IconWarningCircle />}
+                    <li className={theftStatus}>
+                      {statusIcon(theftStatus)}
                       {selectedReport.theft}
                     </li>
-                    <li className={/no|not/i.test(selectedReport.accidents) ? 'ok' : 'warn'}>
-                      {/no|not/i.test(selectedReport.accidents) ? <IconCheckCircle /> : <IconWarningCircle />}
+                    <li className={accidentStatus}>
+                      {statusIcon(accidentStatus)}
                       {selectedReport.accidents}
                     </li>
                     <li className="plain"><IconGauge /> {selectedReport.mileage}</li>
@@ -649,18 +688,28 @@ function App() {
                   <h3>{selectedReport.make} {selectedReport.model}</h3>
                 </div>
                 <div className="report-actions">
-                  <span className="score-pill">{selectedReport.score}/100</span>
+                  <span className="score-pill">{selectedReport.score != null ? `${selectedReport.score}/100` : 'No score'}</span>
                   <button className="btn-outline small" onClick={saveCurrentReport}>Save report</button>
                 </div>
               </div>
+              {!historyAvailable && (
+                <p className="data-note">
+                  <IconInfoCircle /> Decoded via the public NHTSA vPIC registry: make, model, and year are genuine.
+                  Accident, theft, ownership, and mileage history are not publicly available for this VIN.
+                </p>
+              )}
               <div className="meta-grid">
-                <div><strong>Year:</strong> {selectedReport.year}</div>
+                <div><strong>Year:</strong> {selectedReport.year ?? 'Unknown'}</div>
                 <div><strong>VIN:</strong> {selectedReport.vin}</div>
                 <div><strong>Status:</strong> {selectedReport.status}</div>
                 <div><strong>Theft:</strong> {selectedReport.theft}</div>
                 <div><strong>Ownership:</strong> {selectedReport.ownership}</div>
                 <div><strong>Accidents:</strong> {selectedReport.accidents}</div>
                 <div><strong>Mileage:</strong> {selectedReport.mileage}</div>
+                {selectedReport.manufacturer && <div><strong>Manufacturer:</strong> {selectedReport.manufacturer}</div>}
+                {selectedReport.plantCountry && <div><strong>Plant country:</strong> {selectedReport.plantCountry}</div>}
+                {selectedReport.bodyClass && <div><strong>Body class:</strong> {selectedReport.bodyClass}</div>}
+                {selectedReport.fuelType && <div><strong>Fuel type:</strong> {selectedReport.fuelType}</div>}
               </div>
             </div>
           </section>
