@@ -200,8 +200,8 @@ function MileageCurveGraph({ mileage }) {
       : [22, 35, 47, 53, 60, 66];
 
   const width = 150;
-  const height = 84;
-  const padding = 10;
+  const height = 92;
+  const padding = 12;
   const points = values.map((value, index) => ({
     x: padding + (index / (values.length - 1)) * (width - padding * 2),
     y: height - padding - (value / 100) * (height - padding * 2),
@@ -229,8 +229,10 @@ function MileageCurveGraph({ mileage }) {
   return (
     <div className={`mileage-graph ${tone}`}>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Mileage curve graph">
+        <text x={padding} y={8} fontSize="7" fill="rgba(20, 33, 61, 0.7)">Mileage (kms)</text>
+        <text x={width - padding - 36} y={height - 2} fontSize="7" fill="rgba(20, 33, 61, 0.7)">Timeline</text>
         <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(20, 33, 61, 0.18)" strokeDasharray="3 3" />
-        <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="rgba(20, 33, 61, 0.18)" strokeDasharray="3 3" />
+        <line x1={padding} y1={padding + 8} x2={padding} y2={height - padding} stroke="rgba(20, 33, 61, 0.18)" strokeDasharray="3 3" />
         <path
           d={`${pathData} L ${lastPoint.x.toFixed(1)} ${height - padding} L ${startPoint.x.toFixed(1)} ${height - padding} Z`}
           fill={fill}
