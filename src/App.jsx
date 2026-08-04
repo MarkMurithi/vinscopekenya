@@ -185,6 +185,68 @@ function HeroCar() {
   );
 }
 
+function MileageCurveGraph({ mileage }) {
+  const text = String(mileage || '').toLowerCase();
+  const tone = /mismatch|inconsistent|vary|discrep/i.test(text)
+    ? 'warn'
+    : /consistent|appears/i.test(text)
+      ? 'ok'
+      : 'neutral';
+
+  const values = tone === 'warn'
+    ? [26, 41, 54, 61, 49, 43]
+    : tone === 'ok'
+      ? [18, 30, 46, 59, 72, 84]
+      : [22, 35, 47, 53, 60, 66];
+
+  const width = 190;
+  const height = 110;
+  const padding = 12;
+  const points = values.map((value, index) => ({
+    x: padding + (index / (values.length - 1)) * (width - padding * 2),
+    y: height - padding - (value / 100) * (height - padding * 2),
+  }));
+
+  const pathData = points.reduce((acc, point, index) => {
+    if (index === 0) {
+      return `M ${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
+    }
+
+    const prev = points[index - 1];
+    const cp1x = prev.x + (point.x - prev.x) / 3;
+    const cp1y = prev.y - (point.y - prev.y) * 0.2;
+    const cp2x = prev.x + ((point.x - prev.x) * 2) / 3;
+    const cp2y = point.y + (point.y - prev.y) * 0.2;
+
+    return `${acc} C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
+  }, '');
+
+  const stroke = tone === 'warn' ? '#e63946' : tone === 'ok' ? '#16a34a' : '#5b6c97';
+  const fill = tone === 'warn' ? 'rgba(230, 57, 70, 0.14)' : tone === 'ok' ? 'rgba(22, 163, 74, 0.14)' : 'rgba(91, 108, 151, 0.14)';
+  const lastPoint = points[points.length - 1];
+  const startPoint = points[0];
+
+  return (
+    <div className={`mileage-graph ${tone}`}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Mileage curve graph">
+        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(20, 33, 61, 0.18)" strokeDasharray="3 3" />
+        <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="rgba(20, 33, 61, 0.18)" strokeDasharray="3 3" />
+        <path
+          d={`${pathData} L ${lastPoint.x.toFixed(1)} ${height - padding} L ${startPoint.x.toFixed(1)} ${height - padding} Z`}
+          fill={fill}
+        />
+        <path d={pathData} stroke={stroke} strokeWidth="3.2" fill="none" strokeLinecap="round" />
+        {points.map((point, index) => (
+          <g key={index}>
+            <circle cx={point.x} cy={point.y} r="5.2" fill="#fff" stroke={stroke} strokeWidth="2" />
+            <circle cx={point.x} cy={point.y} r="2.2" fill={stroke} />
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 const sampleReports = [
   {
     id: 1,
@@ -843,6 +905,13 @@ function App() {
                 {selectedReport.plantCountry && <div><strong>Plant country:</strong> {selectedReport.plantCountry}</div>}
                 {selectedReport.bodyClass && <div><strong>Body class:</strong> {selectedReport.bodyClass}</div>}
                 {selectedReport.fuelType && <div><strong>Fuel type:</strong> {selectedReport.fuelType}</div>}
+              </div>
+              <div className="mileage-card">
+                <div className="mileage-copy">
+                  <strong>Odometer trend</strong>
+                  <span>{selectedReport.mileage}</span>
+                </div>
+                <MileageCurveGraph mileage={selectedReport.mileage} />
               </div>
             </div>
           </section>
