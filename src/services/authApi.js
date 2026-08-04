@@ -62,3 +62,11 @@ export async function saveVehicleReport(report) {
 export async function deleteVehicleReport(vin) {
   return requestJson(`/api/reports/${encodeURIComponent(vin)}`, { method: 'DELETE' });
 }
+
+export async function setReportComparisonSelection(vin, selected) {
+  return requestJson(`/api/reports/${encodeURIComponent(vin)}/comparison`, {
+    method: 'PATCH',
+    body: JSON.stringify({ selected }),
+  });
+}
+

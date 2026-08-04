@@ -8,6 +8,7 @@ import {
   registerUser,
   saveVehicleReport,
   deleteVehicleReport,
+  setReportComparisonSelection,
 } from './services/authApi';
 import { lookupVehicleByVin, pingVehicleApi } from './services/vehicleApi';
 import { startMpesaPayment, getPaymentStatus } from './services/paymentsApi';
@@ -317,10 +318,15 @@ function App() {
   const [mpesaPhone, setMpesaPhone] = useState('');
   const [paymentMessage, setPaymentMessage] = useState('');
 
-  const comparisonReports = useMemo(
-    () => sampleReports.filter((report) => comparisonIds.includes(report.id)),
-    [comparisonIds]
-  );
+  // Compare a signed-in user's own looked-up vehicles once they've saved any;
+  // otherwise fall back to the 3 demo vehicles so the page still works for guests.
+  const usingSavedComparison = Boolean(user) && savedReports.length > 0;
+  const comparisonReports = useMemo(() => {
+    if (usingSavedComparison) {
+      return savedReports.filter((report) => report.selectedForComparison);
+    }
+    return sampleReports.filter((report) => comparisonIds.includes(report.id));
+  }, [usingSavedComparison, savedReports, comparisonIds]);
 
   const goToSection = (id) => {
     setView('home');
@@ -447,6 +453,15 @@ function App() {
     setComparisonIds((current) =>
       current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]
     );
+  };
+
+  const toggleSavedComparison = async (vin, currentlySelected) => {
+    try {
+      const updated = await setReportComparisonSelection(vin, !currentlySelected);
+      setSavedReports((current) => current.map((report) => (report.vin === vin ? updated : report)));
+    } catch (error) {
+      setMessage(error.message || 'Could not update comparison selection.');
+    }
   };
 
   const saveCurrentReport = async () => {
@@ -837,17 +852,31 @@ function App() {
           <section className="stack">
             <div className="panel">
               <h2>Vehicle comparison dashboard</h2>
-              <p>Select vehicles to compare their risk profile and trust score.</p>
+              <p>
+                {usingSavedComparison
+                  ? 'Select from your saved reports to compare their risk profile and trust score.'
+                  : 'Select vehicles to compare their risk profile and trust score. Save reports to your account to compare your own lookups instead of the demo vehicles.'}
+              </p>
               <div className="cards compact">
-                {sampleReports.map((report) => (
-                  <article key={report.id} className="compare-card">
-                    <h3>{report.make} {report.model}</h3>
-                    <p>{report.year} • {report.status}</p>
-                    <button onClick={() => toggleComparison(report.id)}>
-                      {comparisonIds.includes(report.id) ? 'Remove' : 'Add to compare'}
-                    </button>
-                  </article>
-                ))}
+                {usingSavedComparison
+                  ? savedReports.map((report) => (
+                      <article key={report.vin} className="compare-card">
+                        <h3>{report.make} {report.model}</h3>
+                        <p>{report.year ?? 'Unknown'} • {report.status}</p>
+                        <button onClick={() => toggleSavedComparison(report.vin, report.selectedForComparison)}>
+                          {report.selectedForComparison ? 'Remove' : 'Add to compare'}
+                        </button>
+                      </article>
+                    ))
+                  : sampleReports.map((report) => (
+                      <article key={report.id} className="compare-card">
+                        <h3>{report.make} {report.model}</h3>
+                        <p>{report.year} • {report.status}</p>
+                        <button onClick={() => toggleComparison(report.id)}>
+                          {comparisonIds.includes(report.id) ? 'Remove' : 'Add to compare'}
+                        </button>
+                      </article>
+                    ))}
               </div>
             </div>
 
@@ -857,30 +886,30 @@ function App() {
                   <tr>
                     <th>Metric</th>
                     {comparisonReports.map((report) => (
-                      <th key={report.id}>{report.make} {report.model}</th>
+                      <th key={report.vin}>{report.make} {report.model}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
                     <td>Trust score</td>
-                    {comparisonReports.map((report) => <td key={report.id}>{report.score}/100</td>)}
+                    {comparisonReports.map((report) => <td key={report.vin}>{report.score != null ? `${report.score}/100` : 'No score'}</td>)}
                   </tr>
                   <tr>
                     <td>Theft</td>
-                    {comparisonReports.map((report) => <td key={report.id}>{report.theft}</td>)}
+                    {comparisonReports.map((report) => <td key={report.vin}>{report.theft}</td>)}
                   </tr>
                   <tr>
                     <td>Ownership</td>
-                    {comparisonReports.map((report) => <td key={report.id}>{report.ownership}</td>)}
+                    {comparisonReports.map((report) => <td key={report.vin}>{report.ownership}</td>)}
                   </tr>
                   <tr>
                     <td>Accidents</td>
-                    {comparisonReports.map((report) => <td key={report.id}>{report.accidents}</td>)}
+                    {comparisonReports.map((report) => <td key={report.vin}>{report.accidents}</td>)}
                   </tr>
                   <tr>
                     <td>Mileage</td>
-                    {comparisonReports.map((report) => <td key={report.id}>{report.mileage}</td>)}
+                    {comparisonReports.map((report) => <td key={report.vin}>{report.mileage}</td>)}
                   </tr>
                 </tbody>
               </table>

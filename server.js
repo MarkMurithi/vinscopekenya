@@ -159,9 +159,13 @@ const initializeDatabase = async () => {
       mileage VARCHAR(150),
       score INTEGER,
       saved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      selected_for_comparison BOOLEAN NOT NULL DEFAULT false,
       UNIQUE (user_id, vin)
     );
   `);
+
+  await pool.query('ALTER TABLE saved_reports ADD COLUMN IF NOT EXISTS selected_for_comparison BOOLEAN NOT NULL DEFAULT false;');
+
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS subscriptions (
@@ -383,7 +387,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 // Saved reports (per authenticated user)
 // ---------------------------------------------------------------------------
 
-const REPORT_COLUMNS = `vin, make, model, year, status, theft, ownership, accidents, mileage, score, saved_at AS "savedAt"`;
+const REPORT_COLUMNS = `vin, make, model, year, status, theft, ownership, accidents, mileage, score, saved_at AS "savedAt", selected_for_comparison AS "selectedForComparison"`;
 
 app.get('/api/reports', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
@@ -433,6 +437,19 @@ app.delete('/api/reports/:vin', requireAuth, async (req, res) => {
     req.params.vin.toUpperCase(),
   ]);
   res.json({ ok: true });
+});
+
+app.patch('/api/reports/:vin/comparison', requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `UPDATE saved_reports SET selected_for_comparison = $1 WHERE user_id = $2 AND vin = $3 RETURNING ${REPORT_COLUMNS}`,
+    [Boolean(req.body?.selected), req.user.id, req.params.vin.toUpperCase()]
+  );
+
+  if (!rows[0]) {
+    return res.status(404).json({ error: 'Saved report not found' });
+  }
+
+  res.json(rows[0]);
 });
 
 // ---------------------------------------------------------------------------
