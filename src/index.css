@@ -286,14 +286,44 @@ button {
   align-items: center;
 }
 
-.hero-guide-image {
+.hero-guide-card {
   width: 100%;
   max-width: 430px;
-  height: auto;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.26);
+  padding: 14px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, rgba(7, 12, 22, 0.78), rgba(7, 12, 22, 0.56));
   box-shadow: 0 26px 46px rgba(0, 0, 0, 0.35);
+}
+
+.hero-guide-copy {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.hero-guide-copy strong {
+  color: var(--white);
+  line-height: 1.4;
+}
+
+.hero-guide-label {
+  margin: 0;
+  color: #c7d2fe;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hero-guide-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   object-fit: cover;
+  filter: saturate(0.82) contrast(1.02) brightness(0.9);
 }
 
 .hero-car {

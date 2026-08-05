@@ -884,12 +884,18 @@ function App() {
                   <p className="status subtle">{loadingVehicle ? 'Loading vehicle details...' : apiStatus}</p>
                 </div>
                 <div className="hero-media">
-                  <img
-                    className="hero-guide-image"
-                    src={HERO_VIN_GUIDE_IMAGE_URL}
-                    alt="Guide showing where to find a vehicle VIN"
-                    loading="eager"
-                  />
+                  <div className="hero-guide-card">
+                    <div className="hero-guide-copy">
+                      <p className="hero-guide-label">VIN reading guide</p>
+                      <strong>See where buyers usually confirm the VIN before ordering a report.</strong>
+                    </div>
+                    <img
+                      className="hero-guide-image"
+                      src={HERO_VIN_GUIDE_IMAGE_URL}
+                      alt="Guide showing where to find a vehicle VIN"
+                      loading="eager"
+                    />
+                  </div>
                 </div>
               </div>
             </section>
