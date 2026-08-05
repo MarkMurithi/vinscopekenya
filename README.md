@@ -48,6 +48,37 @@ See [.env.example](.env.example). At minimum, set `DATABASE_URL` and a strong `J
 M-Pesa payments (`MPESA_*` vars) are optional - without them, `/api/payments/stkpush` returns a
 clear "not configured" error instead of failing unpredictably.
 
+## Postman STK Push checklist (Sandbox)
+
+Use the Safaricom Postman collection to verify the payment path end-to-end.
+
+1. Start PostgreSQL and backend, then confirm `GET /health` returns OK.
+2. Confirm local env values are set in `.env`:
+   - `MPESA_ENV=sandbox`
+   - `MPESA_CONSUMER_KEY`
+   - `MPESA_CONSUMER_SECRET`
+   - `MPESA_SHORTCODE=174379`
+   - `MPESA_PASSKEY`
+   - `PUBLIC_BASE_URL` is public HTTPS and reachable by Safaricom callback.
+3. In Postman, run OAuth token request:
+   - `GET https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials`
+4. Initiate STK Push:
+   - `POST https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest`
+   - Required request fields:
+     - `BusinessShortCode` = `174379`
+     - `TransactionType` = `CustomerPayBillOnline`
+     - `PhoneNumber` and `PartyA` in `2547XXXXXXXX` format
+     - `PartyB` = shortcode
+     - `Amount` > `0`
+     - `CallBackURL` = `<PUBLIC_BASE_URL>/api/payments/mpesa/callback`
+5. Approve the STK prompt on phone.
+6. Validate callback delivery and saved status:
+   - Backend logs show callback hit on `/api/payments/mpesa/callback`.
+   - App status endpoint shows completed state:
+     - `GET /api/payments/status/:checkoutRequestId`
+
+If callback does not arrive in local development, set `PUBLIC_BASE_URL` to a public HTTPS tunnel URL and retry.
+
 ## Tests & CI
 
 Run `npm test` against a local PostgreSQL instance (see `docker-compose up -d`). GitHub Actions
