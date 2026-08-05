@@ -1568,7 +1568,7 @@ function App() {
             <a href="#" aria-label="LinkedIn"><span>in</span></a>
           </div>
         </div>
-        <p className="footer-copy">© {new Date().getFullYear()} VinScope Kenya. A vehicle-history platform concept for smarter buying in Kenya.</p>
+        <p className="footer-copy">© {new Date().getFullYear()} VinScope Kenya. A vehicle-history platform for smarter buying in Kenya.</p>
       </footer>
     </div>
   );
