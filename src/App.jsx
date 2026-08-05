@@ -16,8 +16,6 @@ import { buildComparisonChartData, buildVehicleHistorySections, filterSavedRepor
 import { generateVerificationCode, maskContact } from './utils/verificationUtils';
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const HERO_CAR_PHOTO_URL = 'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?auto=format&fit=crop&w=1200&q=80';
-const HERO_CAR_FALLBACK_URL = '/images/hero-car-fallback.svg';
 
 function IconLogo(props) {
   return (
@@ -885,16 +883,26 @@ function App() {
                   <p className="status subtle">{loadingVehicle ? 'Loading vehicle details...' : apiStatus}</p>
                 </div>
                 <div className="hero-media">
-                  <img
-                    className="hero-car-photo"
-                    src={HERO_CAR_PHOTO_URL}
-                    alt="Vehicle ready for inspection"
-                    loading="eager"
-                    onError={(event) => {
-                      event.currentTarget.onerror = null;
-                      event.currentTarget.src = HERO_CAR_FALLBACK_URL;
-                    }}
-                  />
+                  <div className="hero-insight-card" aria-label="VIN insight preview">
+                    <p className="hero-insight-title">Live VIN insight preview</p>
+                    <p className="hero-insight-vin">VIN: JTEBU5JR3K5001234</p>
+                    <div className="hero-insight-row ok">
+                      <span>Theft records</span>
+                      <strong>Clear</strong>
+                    </div>
+                    <div className="hero-insight-row warn">
+                      <span>Accident history</span>
+                      <strong>1 incident</strong>
+                    </div>
+                    <div className="hero-insight-row neutral">
+                      <span>Mileage confidence</span>
+                      <strong>Consistent</strong>
+                    </div>
+                    <div className="hero-insight-score">
+                      <span>Trust score</span>
+                      <strong>88/100</strong>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
