@@ -17,13 +17,27 @@ function baseUrl() {
     : 'https://sandbox.safaricom.co.ke';
 }
 
+const MPESA_REQUIRED_ENV = [
+  'MPESA_CONSUMER_KEY',
+  'MPESA_CONSUMER_SECRET',
+  'MPESA_SHORTCODE',
+  'MPESA_PASSKEY',
+];
+
+export function getMpesaConfigStatus() {
+  const missing = MPESA_REQUIRED_ENV.filter((key) => !String(process.env[key] || '').trim());
+  const presentCount = MPESA_REQUIRED_ENV.length - missing.length;
+
+  return {
+    configured: missing.length === 0,
+    partiallyConfigured: presentCount > 0 && missing.length > 0,
+    missing,
+    environment: process.env.MPESA_ENV === 'production' ? 'production' : 'sandbox',
+  };
+}
+
 export function isMpesaConfigured() {
-  return Boolean(
-    process.env.MPESA_CONSUMER_KEY &&
-      process.env.MPESA_CONSUMER_SECRET &&
-      process.env.MPESA_SHORTCODE &&
-      process.env.MPESA_PASSKEY
-  );
+  return getMpesaConfigStatus().configured;
 }
 
 async function getAccessToken() {
@@ -35,11 +49,20 @@ async function getAccessToken() {
     headers: { Authorization: `Basic ${credentials}` },
   });
 
+  const data = await response.json().catch(() => null);
+
   if (!response.ok) {
-    throw new Error(`Failed to obtain M-Pesa access token (${response.status})`);
+    const message = data?.errorMessage || data?.error_description || `Failed to obtain M-Pesa access token (${response.status})`;
+    const error = new Error(message);
+    error.mpesaDiagnostics = {
+      stage: 'access_token',
+      httpStatus: response.status,
+      responseCode: data?.errorCode || data?.error,
+      responseDescription: data?.errorMessage || data?.error_description,
+    };
+    throw error;
   }
 
-  const data = await response.json();
   return data.access_token;
 }
 
@@ -105,11 +128,20 @@ export async function initiateStkPush({ phone, amount, plan, callbackUrl }) {
     }),
   });
 
-  const data = await response.json();
+  const data = await response.json().catch(() => null);
 
-  if (!response.ok || data.errorCode) {
-    const message = data.errorMessage || data.ResponseDescription || 'STK push request failed';
-    throw new Error(message);
+  if (!response.ok || data?.errorCode || data?.ResponseCode === '1') {
+    const message = data?.errorMessage || data?.ResponseDescription || `STK push request failed (${response.status})`;
+    const error = new Error(message);
+    error.mpesaDiagnostics = {
+      stage: 'stk_push',
+      httpStatus: response.status,
+      responseCode: data?.errorCode || data?.ResponseCode,
+      responseDescription: data?.errorMessage || data?.ResponseDescription,
+      merchantRequestId: data?.MerchantRequestID,
+      checkoutRequestId: data?.CheckoutRequestID,
+    };
+    throw error;
   }
 
   return data; // { MerchantRequestID, CheckoutRequestID, ResponseCode, ResponseDescription, CustomerMessage }

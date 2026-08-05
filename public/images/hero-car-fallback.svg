@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" role="img" aria-labelledby="title desc">
+  <title id="title">Vehicle fallback image</title>
+  <desc id="desc">Stylized silver sedan parked in front of an urban horizon.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1b2a41"/>
+      <stop offset="100%" stop-color="#0b1220"/>
+    </linearGradient>
+    <linearGradient id="road" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="carBody" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e5e7eb"/>
+      <stop offset="50%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="900" height="520" fill="url(#bg)"/>
+
+  <g opacity="0.35" fill="#94a3b8">
+    <rect x="50" y="210" width="70" height="120"/>
+    <rect x="140" y="170" width="55" height="160"/>
+    <rect x="215" y="230" width="90" height="100"/>
+    <rect x="325" y="150" width="75" height="180"/>
+    <rect x="420" y="185" width="65" height="145"/>
+    <rect x="505" y="140" width="90" height="190"/>
+    <rect x="615" y="220" width="80" height="110"/>
+    <rect x="715" y="160" width="60" height="170"/>
+    <rect x="795" y="200" width="55" height="130"/>
+  </g>
+
+  <rect y="330" width="900" height="190" fill="url(#road)"/>
+
+  <ellipse cx="450" cy="395" rx="275" ry="34" fill="#0f172a" opacity="0.55"/>
+
+  <g transform="translate(160 160)">
+    <path d="M48 190 L76 110 C85 84 110 66 138 66 H292 L350 20 H515 L585 66 H666 C694 66 719 84 727 110 L752 190 Z"
+          fill="url(#carBody)" stroke="#94a3b8" stroke-width="6"/>
+    <path d="M300 66 L352 28 H504 L564 66 Z" fill="#dbeafe" stroke="#94a3b8" stroke-width="5"/>
+    <line x1="434" y1="28" x2="434" y2="66" stroke="#94a3b8" stroke-width="4"/>
+
+    <rect x="70" y="132" width="28" height="14" rx="5" fill="#ef4444"/>
+    <rect x="704" y="132" width="30" height="14" rx="5" fill="#f59e0b"/>
+
+    <circle cx="190" cy="198" r="47" fill="#111827"/>
+    <circle cx="190" cy="198" r="20" fill="#64748b"/>
+    <circle cx="604" cy="198" r="47" fill="#111827"/>
+    <circle cx="604" cy="198" r="20" fill="#64748b"/>
+  </g>
+</svg>

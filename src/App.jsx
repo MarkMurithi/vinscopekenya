@@ -16,6 +16,8 @@ import { buildComparisonChartData, buildVehicleHistorySections, filterSavedRepor
 import { generateVerificationCode, maskContact } from './utils/verificationUtils';
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const HERO_CAR_PHOTO_URL = 'https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=1200&q=80';
+const HERO_CAR_FALLBACK_URL = '/images/hero-car-fallback.svg';
 
 function IconLogo(props) {
   return (
@@ -562,7 +564,7 @@ function App() {
       setUser(result.user);
       setSavedReports(await getVehicleReports());
       setMessage(`Welcome back, ${result.user.name}.`);
-      setView('report');
+      setView('home');
       return;
     }
 
@@ -864,7 +866,6 @@ function App() {
         {view === 'home' && (
           <>
             <section id="hero" className="hero">
-              <CitySkyline />
               <div className="hero-inner">
                 <div className="hero-copy">
                   <h1>Check a Vehicle's<br />History in Seconds</h1>
@@ -884,7 +885,16 @@ function App() {
                   <p className="status subtle">{loadingVehicle ? 'Loading vehicle details...' : apiStatus}</p>
                 </div>
                 <div className="hero-media">
-                  <HeroCar />
+                  <img
+                    className="hero-car-photo"
+                    src={HERO_CAR_PHOTO_URL}
+                    alt="Vehicle ready for inspection"
+                    loading="eager"
+                    onError={(event) => {
+                      event.currentTarget.onerror = null;
+                      event.currentTarget.src = HERO_CAR_FALLBACK_URL;
+                    }}
+                  />
                 </div>
               </div>
             </section>

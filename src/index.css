@@ -211,7 +211,12 @@ button {
 .hero {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+  background-image:
+    linear-gradient(110deg, rgba(13, 27, 42, 0.9) 10%, rgba(20, 33, 61, 0.78) 56%, rgba(8, 15, 29, 0.84) 100%),
+    url('https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?auto=format&fit=crop&w=2200&q=80'),
+    url('/images/nairobi-backdrop-fallback.svg');
+  background-size: cover, cover, cover;
+  background-position: center, center, center;
   padding: 64px 24px 96px;
   margin: 0 -24px;
 }
@@ -279,6 +284,16 @@ button {
   display: flex;
   justify-content: center;
   align-items: center;
+}
+
+.hero-car-photo {
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 26px 46px rgba(0, 0, 0, 0.35);
+  object-fit: cover;
 }
 
 .hero-car {

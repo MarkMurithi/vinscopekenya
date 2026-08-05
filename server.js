@@ -17,7 +17,12 @@ import {
   clearAuthCookie,
   requireAuth,
 } from './auth.js';
-import { isMpesaConfigured, normalizeKenyanPhone, initiateStkPush, parseStkCallback } from './mpesa.js';
+import {
+  getMpesaConfigStatus,
+  normalizeKenyanPhone,
+  initiateStkPush,
+  parseStkCallback,
+} from './mpesa.js';
 
 const { Pool } = pkg;
 dotenv.config();
@@ -60,6 +65,36 @@ const pool = new Pool({
   connectionString,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
+
+function validateEnvironment() {
+  const warnings = [];
+
+  try {
+    new URL(connectionString);
+  } catch {
+    throw new Error('Invalid DATABASE_URL. Use a full postgres or postgresql connection URL.');
+  }
+
+  if (!String(process.env.JWT_SECRET || '').trim()) {
+    warnings.push('JWT_SECRET is empty. A random runtime secret will be generated, which invalidates sessions after restart.');
+  }
+
+  const mpesaStatus = getMpesaConfigStatus();
+  if (mpesaStatus.partiallyConfigured) {
+    warnings.push(`M-Pesa is partially configured. Missing: ${mpesaStatus.missing.join(', ')}. STK push will fall back to demo mode.`);
+  }
+
+  const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || '').trim();
+  if (publicBaseUrl && !publicBaseUrl.startsWith('https://')) {
+    warnings.push('PUBLIC_BASE_URL should be HTTPS for M-Pesa callbacks.');
+  }
+
+  for (const warning of warnings) {
+    console.warn(`[env] ${warning}`);
+  }
+}
+
+validateEnvironment();
 
 const seedVehicles = [
   {
@@ -344,6 +379,21 @@ app.get('/health', async (_req, res) => {
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
+});
+
+app.get('/api/admin/health/mpesa', requireAuth, (_req, res) => {
+  const status = getMpesaConfigStatus();
+  const callbackUrl = `${process.env.PUBLIC_BASE_URL || 'http://localhost:5000'}/api/payments/mpesa/callback`;
+
+  res.json({
+    ok: true,
+    configured: status.configured,
+    partiallyConfigured: status.partiallyConfigured,
+    missing: status.missing,
+    environment: status.environment,
+    callbackUrl,
+    mode: status.configured ? 'live' : 'demo-fallback',
+  });
 });
 
 const VEHICLE_COLUMNS = `
@@ -635,8 +685,13 @@ app.post('/api/payments/stkpush', requireAuth, async (req, res) => {
       message: stk.CustomerMessage || 'Enter your M-Pesa PIN on your phone to complete payment.',
     });
   } catch (error) {
-    console.error('STK push failed', error);
-    return res.status(502).json({ error: error.message || 'Could not start M-Pesa payment' });
+    const diagnostics = error.mpesaDiagnostics || null;
+    console.error('STK push failed', diagnostics || error);
+    return res.status(502).json({
+      error: error.message || 'Could not start M-Pesa payment',
+      diagnostics,
+      hint: 'Verify Daraja credentials, shortcode/passkey, callback URL, and Safaricom number format.',
+    });
   }
 });
 

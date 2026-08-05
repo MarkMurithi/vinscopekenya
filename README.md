@@ -41,6 +41,7 @@ A vehicle-history web app prototype with a PostgreSQL-backed backend.
 - POST /api/auth/register, POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me
 - GET /api/reports, POST /api/reports, DELETE /api/reports/:vin (all require auth)
 - POST /api/payments/stkpush, POST /api/payments/mpesa/callback, GET /api/payments/status/:checkoutRequestId
+- GET /api/admin/health/mpesa (requires auth)
 
 ## Required environment variables
 
