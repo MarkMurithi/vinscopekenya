@@ -286,86 +286,14 @@ button {
   align-items: center;
 }
 
-.hero-insight-card {
+.hero-guide-image {
   width: 100%;
   max-width: 430px;
+  height: auto;
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.26);
-  background: rgba(7, 12, 22, 0.68);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
   box-shadow: 0 26px 46px rgba(0, 0, 0, 0.35);
-  padding: 18px;
-  display: grid;
-  gap: 10px;
-}
-
-.hero-insight-title {
-  margin: 0;
-  color: #c7d2fe;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.hero-insight-vin {
-  margin: 0;
-  color: var(--white);
-  font-weight: 700;
-  font-size: 1rem;
-}
-
-.hero-insight-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-}
-
-.hero-insight-row span {
-  color: #d1d5db;
-  font-size: 0.92rem;
-}
-
-.hero-insight-row strong {
-  color: var(--white);
-  font-size: 0.9rem;
-}
-
-.hero-insight-row.ok {
-  background: rgba(16, 185, 129, 0.18);
-}
-
-.hero-insight-row.warn {
-  background: rgba(245, 158, 11, 0.2);
-}
-
-.hero-insight-row.neutral {
-  background: rgba(59, 130, 246, 0.18);
-}
-
-.hero-insight-score {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 2px;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.hero-insight-score span {
-  color: #e2e8f0;
-  font-size: 0.9rem;
-}
-
-.hero-insight-score strong {
-  color: var(--white);
-  font-size: 1.15rem;
+  object-fit: cover;
 }
 
 .hero-car {

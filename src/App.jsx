@@ -16,6 +16,7 @@ import { buildComparisonChartData, buildVehicleHistorySections, filterSavedRepor
 import { generateVerificationCode, maskContact } from './utils/verificationUtils';
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const HERO_VIN_GUIDE_IMAGE_URL = '/images/vin-photo.jpg';
 
 function IconLogo(props) {
   return (
@@ -883,26 +884,12 @@ function App() {
                   <p className="status subtle">{loadingVehicle ? 'Loading vehicle details...' : apiStatus}</p>
                 </div>
                 <div className="hero-media">
-                  <div className="hero-insight-card" aria-label="VIN insight preview">
-                    <p className="hero-insight-title">Live VIN insight preview</p>
-                    <p className="hero-insight-vin">VIN: JTEBU5JR3K5001234</p>
-                    <div className="hero-insight-row ok">
-                      <span>Theft records</span>
-                      <strong>Clear</strong>
-                    </div>
-                    <div className="hero-insight-row warn">
-                      <span>Accident history</span>
-                      <strong>1 incident</strong>
-                    </div>
-                    <div className="hero-insight-row neutral">
-                      <span>Mileage confidence</span>
-                      <strong>Consistent</strong>
-                    </div>
-                    <div className="hero-insight-score">
-                      <span>Trust score</span>
-                      <strong>88/100</strong>
-                    </div>
-                  </div>
+                  <img
+                    className="hero-guide-image"
+                    src={HERO_VIN_GUIDE_IMAGE_URL}
+                    alt="Guide showing where to find a vehicle VIN"
+                    loading="eager"
+                  />
                 </div>
               </div>
             </section>
