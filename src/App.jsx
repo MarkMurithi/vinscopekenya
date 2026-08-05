@@ -16,7 +16,7 @@ import { buildComparisonChartData, buildVehicleHistorySections, filterSavedRepor
 import { generateVerificationCode, maskContact } from './utils/verificationUtils';
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const HERO_CAR_PHOTO_URL = 'https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=1200&q=80';
+const HERO_CAR_PHOTO_URL = 'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?auto=format&fit=crop&w=1200&q=80';
 const HERO_CAR_FALLBACK_URL = '/images/hero-car-fallback.svg';
 
 function IconLogo(props) {
