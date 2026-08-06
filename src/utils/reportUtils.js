@@ -47,6 +47,19 @@ const KENYA_LOCATIONS = [
   'Nakuru Town', 'Eldoret', 'Kisumu', 'Mombasa Island', 'Machakos', 'Nyeri', 'Kiambu Road', 'Naivasha',
 ];
 
+const KENYA_FIRST_NAMES = [
+  'James', 'Mary', 'Peter', 'Grace', 'John', 'Faith', 'David', 'Ann', 'Samuel', 'Esther',
+  'Daniel', 'Joyce', 'Michael', 'Lucy', 'Joseph', 'Susan', 'Brian', 'Caroline', 'Kevin', 'Purity',
+  'Dennis', 'Beatrice', 'Anthony', 'Winnie', 'Charles', 'Agnes', 'Patrick', 'Mercy', 'George', 'Nancy',
+];
+
+const KENYA_LAST_NAMES = [
+  'Mwangi', 'Otieno', 'Wanjiru', 'Kamau', 'Achieng', 'Kariuki', 'Njoroge', 'Odhiambo', 'Wafula', 'Cheruiyot',
+  'Mutua', 'Wambui', 'Kiptoo', 'Nyambura', 'Omondi', 'Njeri', 'Kimani', 'Auma', 'Barasa', 'Chebet',
+];
+
+const KENYA_PHONE_PREFIXES = ['070', '071', '072', '074', '079', '011', '010'];
+
 // Deterministic (VIN-seeded) pseudo-random generator so the same vehicle always
 // shows the same incident details instead of a new fake history on every render.
 const hashString = (value) => {
@@ -85,6 +98,21 @@ const extractCount = (text = '', defaultWhenUnclear = 0) => {
   return defaultWhenUnclear;
 };
 
+const randomOwnerName = (rand) => `${pick(rand, KENYA_FIRST_NAMES)} ${pick(rand, KENYA_LAST_NAMES)}`;
+
+const randomOwnerPhone = (rand) => {
+  const prefix = pick(rand, KENYA_PHONE_PREFIXES);
+  const rest = String(Math.floor(rand() * 1000000)).padStart(6, '0');
+  return `+254 ${prefix.slice(1)}${rest.slice(0, 1)} ${rest.slice(1, 4)} ${rest.slice(4)}`;
+};
+
+// Builds an ascending list of ownership-transfer dates (registration + every
+// change of hands) so each previous owner's purchase/sale dates stay in order.
+const buildOwnershipDates = (rand, ownerCount) => {
+  const dates = Array.from({ length: ownerCount }, () => randomDate(rand, 9));
+  return dates.sort();
+};
+
 // Builds structured, per-incident detail (date, location, outcome, reporting source)
 // for the theft/accident/ownership summary fields shown on a report, so each summary
 // can be expanded into the underlying record(s) it represents.
@@ -118,14 +146,27 @@ export const buildIncidentRecords = (report = {}) => {
   });
 
   const ownerCount = extractCount(report.ownership, /single/i.test(report.ownership || '') ? 1 : 1);
-  const ownership = Array.from({ length: Math.max(ownerCount - 1, 0) }).map((_, index) => ({
-    id: `ownership-${index + 1}`,
-    dateRecorded: randomDate(rand, 8),
-    location: pick(rand, KENYA_LOCATIONS),
-    outcome: 'Ownership transfer registered',
-    reportedBy: 'National Transport and Safety Authority (NTSA)',
-    description: 'A change of registered owner was logged during a vehicle transfer.',
-  }));
+  const transferCount = Math.max(ownerCount - 1, 0);
+  const ownershipDates = buildOwnershipDates(rand, transferCount + 1);
+  const ownership = Array.from({ length: transferCount }).map((_, index) => {
+    const purchaseDate = ownershipDates[index];
+    const saleDate = ownershipDates[index + 1];
+    const ownerName = randomOwnerName(rand);
+    const ownerPhone = randomOwnerPhone(rand);
+    return {
+      id: `ownership-${index + 1}`,
+      ownerNumber: index + 1,
+      ownerName,
+      ownerPhone,
+      purchaseDate,
+      saleDate,
+      dateRecorded: saleDate,
+      location: pick(rand, KENYA_LOCATIONS),
+      outcome: 'Ownership transfer registered',
+      reportedBy: 'National Transport and Safety Authority (NTSA)',
+      description: `Owner ${index + 1}, ${ownerName}, sold the vehicle after registering it as the transfer of ownership.`,
+    };
+  });
 
   return { theft, accidents, ownership };
 };

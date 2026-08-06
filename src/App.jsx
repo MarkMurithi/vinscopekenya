@@ -338,6 +338,60 @@ function MileageCurveGraph({ mileage }) {
   );
 }
 
+// Ownership incidents carry previous-owner contact/date fields instead of the
+// generic theft/accident fields, so render whichever set the incident has.
+function IncidentEntryFields({ incident }) {
+  if (incident.ownerName) {
+    return (
+      <div className="incident-entry-row">
+        <div>
+          <strong>Previous owner</strong>
+          <span>{incident.ownerName}</span>
+        </div>
+        <div>
+          <strong>Phone number</strong>
+          <span>{incident.ownerPhone}</span>
+        </div>
+        <div>
+          <strong>Date purchased</strong>
+          <span>{incident.purchaseDate}</span>
+        </div>
+        <div>
+          <strong>Date sold</strong>
+          <span>{incident.saleDate}</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="incident-entry-row">
+      <div>
+        <strong>Date recorded</strong>
+        <span>{incident.dateRecorded}</span>
+      </div>
+      <div>
+        <strong>Location</strong>
+        <span>{incident.location}</span>
+      </div>
+      {incident.severity && (
+        <div>
+          <strong>Severity</strong>
+          <span>{incident.severity}</span>
+        </div>
+      )}
+      <div>
+        <strong>Outcome</strong>
+        <span>{incident.outcome}</span>
+      </div>
+      <div>
+        <strong>Reported by</strong>
+        <span>{incident.reportedBy}</span>
+      </div>
+    </div>
+  );
+}
+
 const sampleReports = [
   {
     id: 1,
@@ -1920,12 +1974,21 @@ function App() {
               </div>
 
               <div className="report-header">
-                <div>
-                  <p className="eyebrow">Vehicle</p>
-                  <h3>{selectedReport.make} {selectedReport.model}{selectedReport.year ? ` (${selectedReport.year})` : ''}</h3>
-                  <p className="report-status-line">
-                    Status: <span className={`status-chip ${reportStatusTone}`}>{selectedReport.status}</span>
-                  </p>
+                <div className="report-header-identity">
+                  {selectedReport.photo && (
+                    <img
+                      src={selectedReport.photo}
+                      alt={`${selectedReport.make} ${selectedReport.model}`}
+                      className="report-vehicle-photo"
+                    />
+                  )}
+                  <div>
+                    <p className="eyebrow">Vehicle</p>
+                    <h3>{selectedReport.make} {selectedReport.model}{selectedReport.year ? ` (${selectedReport.year})` : ''}</h3>
+                    <p className="report-status-line">
+                      Status: <span className={`status-chip ${reportStatusTone}`}>{selectedReport.status}</span>
+                    </p>
+                  </div>
                 </div>
                 <div className="report-actions">
                   <div className={`score-summary tone-${reportScoreTier.tone}`}>
@@ -2040,30 +2103,7 @@ function App() {
                           <div className="incident-list">
                             {incidentRecords[activeIncidentType].map((incident) => (
                               <div key={incident.id} className="incident-entry">
-                                <div className="incident-entry-row">
-                                  <div>
-                                    <strong>Date recorded</strong>
-                                    <span>{incident.dateRecorded}</span>
-                                  </div>
-                                  <div>
-                                    <strong>Location</strong>
-                                    <span>{incident.location}</span>
-                                  </div>
-                                  {incident.severity && (
-                                    <div>
-                                      <strong>Severity</strong>
-                                      <span>{incident.severity}</span>
-                                    </div>
-                                  )}
-                                  <div>
-                                    <strong>Outcome</strong>
-                                    <span>{incident.outcome}</span>
-                                  </div>
-                                  <div>
-                                    <strong>Reported by</strong>
-                                    <span>{incident.reportedBy}</span>
-                                  </div>
-                                </div>
+                                <IncidentEntryFields incident={incident} />
                                 <p className="incident-description">{incident.description}</p>
                               </div>
                             ))}
@@ -2119,30 +2159,7 @@ function App() {
                             <div className="incident-list">
                               {incidentRecords[type].map((incident) => (
                                 <div key={incident.id} className="incident-entry">
-                                  <div className="incident-entry-row">
-                                    <div>
-                                      <strong>Date recorded</strong>
-                                      <span>{incident.dateRecorded}</span>
-                                    </div>
-                                    <div>
-                                      <strong>Location</strong>
-                                      <span>{incident.location}</span>
-                                    </div>
-                                    {incident.severity && (
-                                      <div>
-                                        <strong>Severity</strong>
-                                        <span>{incident.severity}</span>
-                                      </div>
-                                    )}
-                                    <div>
-                                      <strong>Outcome</strong>
-                                      <span>{incident.outcome}</span>
-                                    </div>
-                                    <div>
-                                      <strong>Reported by</strong>
-                                      <span>{incident.reportedBy}</span>
-                                    </div>
-                                  </div>
+                                  <IncidentEntryFields incident={incident} />
                                   <p className="incident-description">{incident.description}</p>
                                 </div>
                               ))}
