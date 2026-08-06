@@ -161,6 +161,25 @@ function IconMoon(props) {
   );
 }
 
+function IconPhone(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="7" y="2.5" width="10" height="19" rx="2" />
+      <path d="M11 19h2" />
+    </svg>
+  );
+}
+
+function IconCard(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="2.5" y="5.5" width="19" height="13" rx="2.2" />
+      <path d="M2.5 10h19" />
+      <path d="M6 14.5h4" />
+    </svg>
+  );
+}
+
 function CitySkyline() {
   return (
     <svg className="hero-skyline" viewBox="0 0 900 220" preserveAspectRatio="none" aria-hidden="true">
@@ -424,8 +443,15 @@ const pricingPlans = [
   {
     name: 'Business',
     price: 'Custom',
-    description: 'For dealerships and fleet teams',
-    features: ['Bulk checks', 'Team access', 'API-ready workflows'],
+    description: 'Volume-based pricing for dealerships and fleet teams',
+    features: [
+      'Bulk VIN checks with CSV upload',
+      'Team seats with role-based access',
+      'API access for your CRM or DMS',
+      'Dedicated account manager & onboarding',
+      'Monthly invoicing, no per-check fees',
+    ],
+    custom: true,
   },
 ];
 
@@ -465,6 +491,17 @@ function App() {
   const [paymentMessage, setPaymentMessage] = useState('');
   const [activeSubscription, setActiveSubscription] = useState(null);
   const [checkoutSuccess, setCheckoutSuccess] = useState(null);
+  const [enterpriseModalOpen, setEnterpriseModalOpen] = useState(false);
+  const [enterpriseForm, setEnterpriseForm] = useState({
+    companyName: '',
+    contactName: '',
+    email: '',
+    phone: '',
+    fleetSize: '1-10',
+    message: '',
+  });
+  const [enterpriseErrors, setEnterpriseErrors] = useState({});
+  const [enterpriseSubmitted, setEnterpriseSubmitted] = useState(null);
   const [verificationStep, setVerificationStep] = useState('signup');
   const [verificationMethod, setVerificationMethod] = useState('email');
   const [verificationCode, setVerificationCode] = useState('');
@@ -780,6 +817,49 @@ function App() {
     setPaymentMessage('');
   };
 
+  const openEnterpriseInquiry = (plan) => {
+    persistAnalytics(recordPlanSelection(analytics, plan));
+    setEnterpriseSubmitted(null);
+    setEnterpriseErrors({});
+    setEnterpriseForm({
+      companyName: '',
+      contactName: user?.name || '',
+      email: user?.email || '',
+      phone: '',
+      fleetSize: '1-10',
+      message: '',
+    });
+    setEnterpriseModalOpen(true);
+  };
+
+  const closeEnterpriseInquiry = () => {
+    setEnterpriseModalOpen(false);
+    setEnterpriseSubmitted(null);
+    setEnterpriseErrors({});
+  };
+
+  const updateEnterpriseField = (field, value) => {
+    setEnterpriseForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleEnterpriseSubmit = (event) => {
+    event.preventDefault();
+    const errors = {};
+
+    if (!enterpriseForm.companyName.trim()) errors.companyName = 'Dealership or company name is required.';
+    if (!enterpriseForm.contactName.trim()) errors.contactName = 'Contact person is required.';
+    if (!EMAIL_REGEX.test(enterpriseForm.email.trim())) errors.email = 'Enter a valid work email.';
+    if (!enterpriseForm.phone.trim()) errors.phone = 'A phone number is required.';
+
+    if (Object.keys(errors).length > 0) {
+      setEnterpriseErrors(errors);
+      return;
+    }
+
+    setEnterpriseErrors({});
+    setEnterpriseSubmitted({ ...enterpriseForm });
+  };
+
   const openCheckout = (plan) => {
     if (!user) {
       setPaymentMessage('Sign in first to subscribe.');
@@ -795,6 +875,20 @@ function App() {
     setPaymentMessage('');
     requestAnimationFrame(() => {
       document.getElementById('checkout-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const activateFreePlan = (plan) => {
+    if (!user) {
+      setPaymentMessage('Sign in first to get started.');
+      openAuth('login');
+      return;
+    }
+
+    persistAnalytics(recordPlanSelection(analytics, plan));
+    setActiveSubscription({ plan, method: 'Free' });
+    requestAnimationFrame(() => {
+      document.getElementById('subscription-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   };
 
@@ -1118,29 +1212,44 @@ function App() {
               <h2>Simple plans for every buyer</h2>
               <div className="cards pricing-grid">
                 {pricingPlans.map((plan) => (
-                  <article key={plan.name} className={`price-card${plan.highlight ? ' highlight' : ''}`}>
+                  <article key={plan.name} className={`price-card${plan.highlight ? ' highlight' : ''}${plan.custom ? ' enterprise' : ''}`}>
+                    {plan.custom && <span className="enterprise-tag">For dealerships &amp; fleets</span>}
                     <h3>{plan.name}</h3>
-                    <p className="price-tag">{plan.price}</p>
+                    <p className="price-tag">{plan.custom ? 'Custom pricing' : plan.price}</p>
                     <p>{plan.description}</p>
                     <ul>
                       {plan.features.map((feature) => (
                         <li key={feature}>{feature}</li>
                       ))}
                     </ul>
-                    <button className="btn-outline small" onClick={() => openCheckout(plan.name)}>
-                      {plan.name === 'Starter' ? 'Get started' : 'Choose plan'}
+                    <button
+                      className="btn-outline small"
+                      onClick={() =>
+                        plan.custom
+                          ? openEnterpriseInquiry(plan.name)
+                          : plan.name === 'Starter'
+                          ? activateFreePlan(plan.name)
+                          : openCheckout(plan.name)
+                      }
+                    >
+                      {plan.custom ? 'Request a custom quote' : plan.name === 'Starter' ? 'Get started' : 'Choose plan'}
                     </button>
+                    {plan.custom && <p className="enterprise-note">No card needed — we'll follow up with volume-based pricing.</p>}
                   </article>
                 ))}
               </div>
 
               {activeSubscription && (
-                <div className="subscription-success">
+                <div className="subscription-success" id="subscription-panel">
                   <div className="subscription-success-head">
                     <span className="subscription-badge">✓</span>
                     <div>
                       <h3>{activeSubscription.plan} plan is active</h3>
-                      <p>Thanks for subscribing with {activeSubscription.method}. Your dashboard is ready to use.</p>
+                      <p>
+                        {activeSubscription.method === 'Free'
+                          ? "You're all set — no payment needed. Your dashboard is ready to use."
+                          : `Thanks for subscribing with ${activeSubscription.method}. Your dashboard is ready to use.`}
+                      </p>
                     </div>
                   </div>
                   <div className="subscription-success-list">
@@ -1153,7 +1262,7 @@ function App() {
 
               {(checkoutPlan || checkoutSuccess) && (
                 <div className="modal-backdrop" role="dialog" aria-modal="true">
-                  <div className="modal-card" id="checkout-panel">
+                  <div className={`modal-card${checkoutPlan ? ' checkout-modal-card' : ''}`} id="checkout-panel">
                     {checkoutSuccess ? (
                       <>
                         <div className="modal-icon">✓</div>
@@ -1184,70 +1293,217 @@ function App() {
                           </div>
                           <button className="btn-outline small" onClick={closeCheckout}>Cancel</button>
                         </div>
+                        <div className="checkout-layout">
+                          <aside className="checkout-summary">
+                            <p className="checkout-summary-label">Order summary</p>
+                            <div className="checkout-summary-price">
+                              <span className="checkout-summary-amount">
+                                {pricingPlans.find((plan) => plan.name === checkoutPlan)?.price}
+                              </span>
+                              <span className="checkout-summary-cycle">/ month</span>
+                            </div>
+                            <ul className="checkout-summary-features">
+                              {pricingPlans
+                                .find((plan) => plan.name === checkoutPlan)
+                                ?.features.map((feature) => (
+                                  <li key={feature}>
+                                    <IconCheckCircle />
+                                    <span>{feature}</span>
+                                  </li>
+                                ))}
+                            </ul>
+                            <div className="checkout-summary-security">
+                              <IconLock />
+                              <span>256-bit encrypted &amp; PCI-compliant checkout</span>
+                            </div>
+                          </aside>
+
+                          <div className="checkout-payment">
+                            <div className="payment-methods">
+                              <button
+                                className={`payment-pill${paymentMethod === 'mpesa' ? ' active' : ''}`}
+                                onClick={() => setPaymentMethod('mpesa')}
+                                type="button"
+                              >
+                                <IconPhone />
+                                <span>M-Pesa</span>
+                              </button>
+                              <button
+                                className={`payment-pill${paymentMethod === 'card' ? ' active' : ''}`}
+                                onClick={() => setPaymentMethod('card')}
+                                type="button"
+                              >
+                                <IconCard />
+                                <span>Credit / Debit Card</span>
+                              </button>
+                            </div>
+
+                            {paymentMethod === 'mpesa' ? (
+                              <div className="payment-form">
+                                <label>
+                                  M-Pesa phone number
+                                  <input
+                                    value={mpesaPhone}
+                                    onChange={(event) => setMpesaPhone(event.target.value)}
+                                    placeholder="07XXXXXXXX"
+                                  />
+                                </label>
+                                <p className="checkout-charge-note">
+                                  You'll be charged{' '}
+                                  <strong>{pricingPlans.find((plan) => plan.name === checkoutPlan)?.price}</strong> via an
+                                  M-Pesa STK push to the number above.
+                                </p>
+                                <button className="btn-red" onClick={() => handleMpesaPayment(checkoutPlan)}>
+                                  Pay {pricingPlans.find((plan) => plan.name === checkoutPlan)?.price} with M-Pesa
+                                </button>
+                              </div>
+                            ) : (
+                              <form className="payment-form" onSubmit={(event) => handleCardPayment(event, checkoutPlan)}>
+                                <label>
+                                  Card number
+                                  <input value={cardNumber} onChange={(event) => setCardNumber(event.target.value)} placeholder="4242 4242 4242 4242" />
+                                </label>
+                                <label>
+                                  Name on card
+                                  <input value={cardName} onChange={(event) => setCardName(event.target.value)} placeholder="Jane Doe" />
+                                </label>
+                                <div className="card-row">
+                                  <label>
+                                    Expiry
+                                    <input value={cardExpiry} onChange={(event) => setCardExpiry(event.target.value)} placeholder="MM/YY" />
+                                  </label>
+                                  <label>
+                                    CVV
+                                    <input value={cardCvv} onChange={(event) => setCardCvv(event.target.value)} placeholder="123" />
+                                  </label>
+                                </div>
+                                <p className="checkout-charge-note">
+                                  You'll be charged{' '}
+                                  <strong>{pricingPlans.find((plan) => plan.name === checkoutPlan)?.price}</strong> to the
+                                  card above today.
+                                </p>
+                                <button className="btn-red" type="submit">
+                                  Pay {pricingPlans.find((plan) => plan.name === checkoutPlan)?.price} with Card
+                                </button>
+                              </form>
+                            )}
+
+                            {payingPlan === checkoutPlan && paymentMessage && <p className="status subtle">{paymentMessage}</p>}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {enterpriseModalOpen && (
+                <div className="modal-backdrop" role="dialog" aria-modal="true">
+                  <div className="modal-card">
+                    {enterpriseSubmitted ? (
+                      <>
+                        <div className="modal-icon">✓</div>
+                        <p className="eyebrow">Request received</p>
+                        <h3>We'll be in touch shortly</h3>
+                        <p className="modal-copy">
+                          Thanks {enterpriseSubmitted.contactName}! Our sales team will reach out to{' '}
+                          <strong>{enterpriseSubmitted.email}</strong> within 1 business day with volume-based pricing
+                          tailored to {enterpriseSubmitted.companyName}.
+                        </p>
                         <div className="plan-summary">
                           <div>
-                            <strong>Plan</strong>
-                            <span>{checkoutPlan}</span>
+                            <strong>Company</strong>
+                            <span>{enterpriseSubmitted.companyName}</span>
                           </div>
                           <div>
-                            <strong>Includes</strong>
-                            <span>{pricingPlans.find((plan) => plan.name === checkoutPlan)?.features.join(' • ')}</span>
+                            <strong>Monthly volume</strong>
+                            <span>{enterpriseSubmitted.fleetSize} vehicle checks</span>
+                          </div>
+                          <div>
+                            <strong>Contact</strong>
+                            <span>{enterpriseSubmitted.phone}</span>
                           </div>
                         </div>
-                        <div className="payment-methods">
-                          <button
-                            className={`payment-pill${paymentMethod === 'mpesa' ? ' active' : ''}`}
-                            onClick={() => setPaymentMethod('mpesa')}
-                            type="button"
-                          >
-                            M-Pesa
-                          </button>
-                          <button
-                            className={`payment-pill${paymentMethod === 'card' ? ' active' : ''}`}
-                            onClick={() => setPaymentMethod('card')}
-                            type="button"
-                          >
-                            Credit / Debit Card
-                          </button>
+                        <div className="modal-actions">
+                          <button className="btn-outline" onClick={closeEnterpriseInquiry}>Close</button>
                         </div>
-
-                        {paymentMethod === 'mpesa' ? (
-                          <div className="payment-form">
+                      </>
+                    ) : (
+                      <>
+                        <div className="modal-header">
+                          <div>
+                            <p className="eyebrow">Dealership &amp; fleet plan</p>
+                            <h3>Tell us about your business</h3>
+                          </div>
+                          <button className="btn-outline small" onClick={closeEnterpriseInquiry}>Cancel</button>
+                        </div>
+                        <p className="modal-copy">
+                          Share a few details and our team will prepare a custom quote based on your monthly VIN check
+                          volume, team size, and integration needs. No payment is required to request a quote.
+                        </p>
+                        <form className="payment-form enterprise-form" onSubmit={handleEnterpriseSubmit}>
+                          <label>
+                            Dealership / company name
+                            <input
+                              value={enterpriseForm.companyName}
+                              onChange={(event) => updateEnterpriseField('companyName', event.target.value)}
+                              placeholder="e.g. Nairobi Motors Ltd"
+                            />
+                            {enterpriseErrors.companyName && <span className="field-error">{enterpriseErrors.companyName}</span>}
+                          </label>
+                          <label>
+                            Contact person
+                            <input
+                              value={enterpriseForm.contactName}
+                              onChange={(event) => updateEnterpriseField('contactName', event.target.value)}
+                              placeholder="Full name"
+                            />
+                            {enterpriseErrors.contactName && <span className="field-error">{enterpriseErrors.contactName}</span>}
+                          </label>
+                          <div className="card-row">
                             <label>
-                              M-Pesa phone number
+                              Work email
                               <input
-                                value={mpesaPhone}
-                                onChange={(event) => setMpesaPhone(event.target.value)}
+                                type="email"
+                                value={enterpriseForm.email}
+                                onChange={(event) => updateEnterpriseField('email', event.target.value)}
+                                placeholder="you@dealership.co.ke"
+                              />
+                              {enterpriseErrors.email && <span className="field-error">{enterpriseErrors.email}</span>}
+                            </label>
+                            <label>
+                              Phone number
+                              <input
+                                value={enterpriseForm.phone}
+                                onChange={(event) => updateEnterpriseField('phone', event.target.value)}
                                 placeholder="07XXXXXXXX"
                               />
+                              {enterpriseErrors.phone && <span className="field-error">{enterpriseErrors.phone}</span>}
                             </label>
-                            <button className="btn-red" onClick={() => handleMpesaPayment(checkoutPlan)}>Pay with M-Pesa</button>
                           </div>
-                        ) : (
-                          <form className="payment-form" onSubmit={(event) => handleCardPayment(event, checkoutPlan)}>
-                            <label>
-                              Card number
-                              <input value={cardNumber} onChange={(event) => setCardNumber(event.target.value)} placeholder="4242 4242 4242 4242" />
-                            </label>
-                            <label>
-                              Name on card
-                              <input value={cardName} onChange={(event) => setCardName(event.target.value)} placeholder="Jane Doe" />
-                            </label>
-                            <div className="card-row">
-                              <label>
-                                Expiry
-                                <input value={cardExpiry} onChange={(event) => setCardExpiry(event.target.value)} placeholder="MM/YY" />
-                              </label>
-                              <label>
-                                CVV
-                                <input value={cardCvv} onChange={(event) => setCardCvv(event.target.value)} placeholder="123" />
-                              </label>
-                            </div>
-                            <button className="btn-red" type="submit">Pay with Card</button>
-                          </form>
-                        )}
-
-                        {payingPlan === checkoutPlan && paymentMessage && <p className="status subtle">{paymentMessage}</p>}
+                          <label>
+                            Monthly vehicle check volume
+                            <select
+                              value={enterpriseForm.fleetSize}
+                              onChange={(event) => updateEnterpriseField('fleetSize', event.target.value)}
+                            >
+                              <option value="1-10">1 - 10</option>
+                              <option value="11-50">11 - 50</option>
+                              <option value="51-200">51 - 200</option>
+                              <option value="200+">200+</option>
+                            </select>
+                          </label>
+                          <label>
+                            Additional details (optional)
+                            <textarea
+                              value={enterpriseForm.message}
+                              onChange={(event) => updateEnterpriseField('message', event.target.value)}
+                              placeholder="Tell us about your team size, CRM/DMS, or integration timeline"
+                              rows={3}
+                            />
+                          </label>
+                          <button className="btn-red" type="submit">Request custom quote</button>
+                        </form>
                       </>
                     )}
                   </div>
