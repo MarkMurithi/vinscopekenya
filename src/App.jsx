@@ -144,6 +144,23 @@ function IconArrowRight(props) {
   );
 }
 
+function IconSun(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="4.2" />
+      <path d="M12 2.5v2.4M12 19.1v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7" />
+    </svg>
+  );
+}
+
+function IconMoon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z" />
+    </svg>
+  );
+}
+
 function CitySkyline() {
   return (
     <svg className="hero-skyline" viewBox="0 0 900 220" preserveAspectRatio="none" aria-hidden="true">
@@ -195,6 +212,11 @@ function MileageCurveGraph({ mileage }) {
     : /consistent|appears/i.test(text)
       ? 'ok'
       : 'neutral';
+  const toneLabel = tone === 'warn'
+    ? 'Irregular pattern detected'
+    : tone === 'ok'
+      ? 'Consistent with vehicle age'
+      : 'Estimated trend';
 
   const values = tone === 'warn'
     ? [26, 41, 54, 61, 49, 43]
@@ -202,12 +224,17 @@ function MileageCurveGraph({ mileage }) {
       ? [18, 30, 46, 59, 72, 84]
       : [22, 35, 47, 53, 60, 66];
 
-  const width = 150;
-  const height = 92;
-  const padding = 12;
+  const maxKm = 160000;
+  const width = 460;
+  const height = 210;
+  const padding = { top: 22, right: 24, bottom: 34, left: 46 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+
   const points = values.map((value, index) => ({
-    x: padding + (index / (values.length - 1)) * (width - padding * 2),
-    y: height - padding - (value / 100) * (height - padding * 2),
+    x: padding.left + (index / (values.length - 1)) * plotWidth,
+    y: padding.top + plotHeight - (value / 100) * plotHeight,
+    km: Math.round((value / 100) * maxKm),
   }));
 
   const pathData = points.reduce((acc, point, index) => {
@@ -225,29 +252,65 @@ function MileageCurveGraph({ mileage }) {
   }, '');
 
   const stroke = tone === 'warn' ? '#e63946' : tone === 'ok' ? '#16a34a' : '#5b6c97';
-  const fill = tone === 'warn' ? 'rgba(230, 57, 70, 0.14)' : tone === 'ok' ? 'rgba(22, 163, 74, 0.14)' : 'rgba(91, 108, 151, 0.14)';
+  const fillId = `mileage-fill-${tone}`;
   const lastPoint = points[points.length - 1];
   const startPoint = points[0];
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
 
   return (
     <div className={`mileage-graph ${tone}`}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Mileage curve graph">
-        <text x={padding} y={8} fontSize="7" fill="rgba(20, 33, 61, 0.7)">Mileage (kms)</text>
-        <text x={width - padding - 36} y={height - 2} fontSize="7" fill="rgba(20, 33, 61, 0.7)">Timeline</text>
-        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(20, 33, 61, 0.18)" strokeDasharray="3 3" />
-        <line x1={padding} y1={padding + 8} x2={padding} y2={height - padding} stroke="rgba(20, 33, 61, 0.18)" strokeDasharray="3 3" />
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Odometer reading trend graph">
+        <defs>
+          <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={stroke} stopOpacity="0.3" />
+            <stop offset="100%" stopColor={stroke} stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+
+        <text x={padding.left} y={12} fontSize="10" fontWeight="700" fill="rgba(20, 33, 61, 0.75)">
+          Odometer reading (km)
+        </text>
+
+        {yTicks.map((tick) => {
+          const y = padding.top + plotHeight - tick * plotHeight;
+          const km = Math.round(tick * maxKm);
+          return (
+            <g key={tick}>
+              <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="rgba(20, 33, 61, 0.1)" strokeDasharray="3 3" />
+              <text x={padding.left - 8} y={y + 3} fontSize="9" textAnchor="end" fill="rgba(20, 33, 61, 0.6)">
+                {km >= 1000 ? `${Math.round(km / 1000)}k` : km}
+              </text>
+            </g>
+          );
+        })}
+
+        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke="rgba(20, 33, 61, 0.25)" />
+        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="rgba(20, 33, 61, 0.25)" />
+
         <path
-          d={`${pathData} L ${lastPoint.x.toFixed(1)} ${height - padding} L ${startPoint.x.toFixed(1)} ${height - padding} Z`}
-          fill={fill}
+          d={`${pathData} L ${lastPoint.x.toFixed(1)} ${height - padding.bottom} L ${startPoint.x.toFixed(1)} ${height - padding.bottom} Z`}
+          fill={`url(#${fillId})`}
         />
-        <path d={pathData} stroke={stroke} strokeWidth="3.2" fill="none" strokeLinecap="round" />
+        <path d={pathData} stroke={stroke} strokeWidth="2.6" fill="none" strokeLinecap="round" />
+
         {points.map((point, index) => (
           <g key={index}>
-            <circle cx={point.x} cy={point.y} r="5.2" fill="#fff" stroke={stroke} strokeWidth="2" />
-            <circle cx={point.x} cy={point.y} r="2.2" fill={stroke} />
+            <circle cx={point.x} cy={point.y} r="4.4" fill="#fff" stroke={stroke} strokeWidth="2" />
+            <circle cx={point.x} cy={point.y} r="2" fill={stroke} />
+            <text x={point.x} y={height - padding.bottom + 16} fontSize="8.5" textAnchor="middle" fill="rgba(20, 33, 61, 0.6)">
+              R{index + 1}
+            </text>
           </g>
         ))}
+
+        <text x={lastPoint.x} y={lastPoint.y - 10} fontSize="9.5" textAnchor="middle" fontWeight="700" fill={stroke}>
+          {lastPoint.km.toLocaleString()} km
+        </text>
       </svg>
+      <div className="mileage-graph-footer">
+        <span className={`mileage-tone-dot ${tone}`} />
+        <span>{toneLabel}</span>
+      </div>
     </div>
   );
 }
@@ -368,6 +431,14 @@ const pricingPlans = [
 
 function App() {
   const [view, setView] = useState('home');
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === 'undefined') return 'light';
+    try {
+      return window.localStorage.getItem('vinscope-theme') || 'light';
+    } catch {
+      return 'light';
+    }
+  });
   const [authMode, setAuthMode] = useState('login');
   const [user, setUser] = useState(null);
   const [vinInput, setVinInput] = useState('');
@@ -823,6 +894,17 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      window.localStorage.setItem('vinscope-theme', theme);
+    } catch {
+      // localStorage unavailable (e.g. private browsing) - theme still applies for this session
+    }
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
+
   const historyAvailable = selectedReport.historyAvailable !== false;
   const theftStatus = !historyAvailable ? 'unknown' : /no/i.test(selectedReport.theft) ? 'ok' : 'warn';
   const accidentStatus = !historyAvailable ? 'unknown' : /no|not/i.test(selectedReport.accidents) ? 'ok' : 'warn';
@@ -861,6 +943,15 @@ function App() {
           <button onClick={() => goToSection('contact')}>Contact</button>
         </nav>
         <div className="auth-buttons">
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <IconSun /> : <IconMoon />}
+          </button>
           {user ? (
             <>
               <span className="status subtle">Hi, {user.name}</span>
@@ -1324,6 +1415,7 @@ function App() {
                     </table>
                   </div>
 
+                  <h4 className="report-section-title">Odometer reading history</h4>
                   <div className="mileage-card">
                     <div className="mileage-copy">
                       <strong>Odometer trend</strong>
