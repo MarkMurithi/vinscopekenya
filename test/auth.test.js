@@ -4,6 +4,13 @@ import { once } from 'node:events';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
+// Force demo mode regardless of real SMS credentials configured in the local .env,
+// so this test deterministically exercises the demoCode fallback instead of
+// depending on a live network call to Africa's Talking. Set (not delete) so that
+// dotenv.config() inside server.js - which never overrides an existing key - does
+// not repopulate these from .env.
+process.env.AFRICASTALKING_API_KEY = '';
+process.env.AFRICASTALKING_USERNAME = '';
 const { app, initializeDatabase } = await import('../server.js');
 await initializeDatabase();
 

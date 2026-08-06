@@ -19,7 +19,7 @@ services:
       - key: AFRICASTALKING_USERNAME
         sync: false
       - key: OTP_DEMO_MODE
-        value: "false"
+        value: "true"
 
 databases:
   - name: vinscope-postgres

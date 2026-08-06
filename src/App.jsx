@@ -2516,7 +2516,7 @@ function App() {
             <a href="https://linkedin.com/company/vinscopekenya" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"><span>in</span></a>
           </div>
         </div>
-        <p className="footer-copy">© {new Date().getFullYear()} VinScope Kenya. A vehicle-history platform for smarter buying in Kenya.Developed by Mark Murithi</p>
+        <p className="footer-copy">© {new Date().getFullYear()} VinScope Kenya. A vehicle-history platform for smarter buying in Kenya. Developed by Mark Murithi</p>
       </footer>
     </div>
   );

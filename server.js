@@ -531,15 +531,26 @@ app.post('/api/auth/otp/send', otpLimiter, async (req, res) => {
         return res.status(409).json({ error: 'An account with that phone number already exists.' });
       }
     }
+  } catch (error) {
+    console.error('OTP lookup failed', error);
+    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 
+  const demoModeAllowed = process.env.NODE_ENV !== 'production' || process.env.OTP_DEMO_MODE === 'true';
+  let smsDeliveryFailed = false;
+  try {
     await sendSms(issued.normalized, `Your Vinscope Kenya verification code is ${issued.code}. It expires in 5 minutes.`);
   } catch (error) {
     console.error('SMS send failed', error);
-    return res.status(502).json({ error: 'Could not send the SMS right now. Please try again.' });
+    if (!demoModeAllowed) {
+      return res.status(502).json({ error: 'Could not send the SMS right now. Please try again.' });
+    }
+    // Provider is configured but failing (e.g. bad credentials) - degrade to demo mode instead of blocking the user.
+    smsDeliveryFailed = true;
   }
 
   const response = { success: true, expiresInSeconds: 300 };
-  if (!isSmsConfigured() && (process.env.NODE_ENV !== 'production' || process.env.OTP_DEMO_MODE === 'true')) {
+  if ((smsDeliveryFailed || !isSmsConfigured()) && demoModeAllowed) {
     response.demoCode = issued.code;
   }
 
