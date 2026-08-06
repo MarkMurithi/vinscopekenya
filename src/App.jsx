@@ -2092,14 +2092,67 @@ function App() {
                     </table>
                   </div>
 
-                  <h4 className="report-section-title">Odometer reading history</h4>
-                  <div className="mileage-card">
-                    <div className="mileage-copy">
-                      <strong>Odometer trend</strong>
-                      <span>{selectedReport.mileage}</span>
+                  <div className="report-page-break">
+                    <h4 className="report-section-title">Odometer reading history</h4>
+                    <div className="mileage-card">
+                      <div className="mileage-copy">
+                        <strong>Odometer trend</strong>
+                        <span>{selectedReport.mileage}</span>
+                      </div>
+                      <MileageCurveGraph mileage={selectedReport.mileage} />
                     </div>
-                    <MileageCurveGraph mileage={selectedReport.mileage} />
                   </div>
+
+                  {historyAvailable && (
+                    <div className="report-incident-appendix">
+                      <h4 className="report-section-title">Incident details</h4>
+                      {[
+                        { type: 'theft', heading: 'Theft record' },
+                        { type: 'accidents', heading: 'Accident history' },
+                        { type: 'ownership', heading: 'Ownership history' },
+                      ].map(({ type, heading }) => (
+                        <div key={type} className="incident-appendix-group">
+                          <p className="incident-appendix-heading">{heading}</p>
+                          {incidentRecords[type].length === 0 ? (
+                            <p className="incident-appendix-empty">No recorded incidents in this category.</p>
+                          ) : (
+                            <div className="incident-list">
+                              {incidentRecords[type].map((incident) => (
+                                <div key={incident.id} className="incident-entry">
+                                  <div className="incident-entry-row">
+                                    <div>
+                                      <strong>Date recorded</strong>
+                                      <span>{incident.dateRecorded}</span>
+                                    </div>
+                                    <div>
+                                      <strong>Location</strong>
+                                      <span>{incident.location}</span>
+                                    </div>
+                                    {incident.severity && (
+                                      <div>
+                                        <strong>Severity</strong>
+                                        <span>{incident.severity}</span>
+                                      </div>
+                                    )}
+                                    <div>
+                                      <strong>Outcome</strong>
+                                      <span>{incident.outcome}</span>
+                                    </div>
+                                    <div>
+                                      <strong>Reported by</strong>
+                                      <span>{incident.reportedBy}</span>
+                                    </div>
+                                  </div>
+                                  <p className="incident-description">{incident.description}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <button className="btn-outline full" onClick={() => openVehicleDetail(selectedReport)}>
                     Open detailed vehicle history
                   </button>

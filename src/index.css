@@ -1491,6 +1491,29 @@ button {
   font-size: 0.85rem;
 }
 
+.incident-appendix-group {
+  margin-bottom: 18px;
+}
+
+.incident-appendix-heading {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--navy);
+  margin: 0 0 8px;
+}
+
+.incident-appendix-empty {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* The full incident appendix is only meant to appear in the printed/saved report -
+   the on-screen report already surfaces the same detail via the clickable risk cards. */
+.report-incident-appendix {
+  display: none;
+}
+
 .specs-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--gray-200);
@@ -1552,6 +1575,15 @@ button {
   .report-card {
     box-shadow: none;
     border: none;
+  }
+
+  .report-page-break {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  .report-incident-appendix {
+    display: block;
   }
 }
 
