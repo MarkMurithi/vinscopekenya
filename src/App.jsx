@@ -822,9 +822,10 @@ function App() {
 
       setVerificationCodeSent(true);
       setVerificationStep('verify');
+      if (result.demoCode) setCodeInput(result.demoCode);
       setMessage(
         result.demoCode
-          ? `Verification code sent to ${maskContact(contact, 'sms')}. (Demo mode - code: ${result.demoCode})`
+          ? `Verification code sent to ${maskContact(contact, 'sms')}. (Demo mode - code pre-filled below: ${result.demoCode})`
           : `Verification code sent to ${maskContact(contact, 'sms')} via SMS.`
       );
       return;
@@ -902,9 +903,10 @@ function App() {
     }
 
     setPhoneLoginCodeSent(true);
+    if (result.demoCode) setPhoneLoginCode(result.demoCode);
     setMessage(
       result.demoCode
-        ? `Login code sent to ${maskContact(phoneLoginPhone, 'sms')}. (Demo mode - code: ${result.demoCode})`
+        ? `Login code sent to ${maskContact(phoneLoginPhone, 'sms')}. (Demo mode - code pre-filled below: ${result.demoCode})`
         : `Login code sent to ${maskContact(phoneLoginPhone, 'sms')} via SMS.`
     );
   };
