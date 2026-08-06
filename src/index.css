@@ -94,8 +94,9 @@ button {
   border-radius: 12px;
   display: grid;
   place-items: center;
-  color: var(--white);
-  background: linear-gradient(135deg, var(--red), var(--red-dark));
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  box-shadow: var(--shadow);
   flex-shrink: 0;
 }
 
@@ -1236,8 +1237,8 @@ button {
   width: 42px;
   height: 42px;
   border-radius: 10px;
-  background: var(--navy);
-  color: var(--white);
+  background: var(--white);
+  border: 1px solid var(--gray-200);
   flex-shrink: 0;
 }
 

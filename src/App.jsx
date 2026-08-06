@@ -21,20 +21,14 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function IconLogo(props) {
   return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" {...props}>
-      <text
-        x="12"
-        y="16.5"
-        textAnchor="middle"
-        fontSize="11"
-        fontWeight="800"
-        fontFamily="inherit"
-        letterSpacing="-0.5"
-        fill="currentColor"
-        stroke="none"
-      >
-        VK
-      </text>
+    <svg viewBox="0 0 24 24" width="22" height="22" {...props}>
+      <path
+        d="M4.4 15.6 5.9 10a2.3 2.3 0 0 1 2.2-1.7h7.8A2.3 2.3 0 0 1 18.1 10l1.5 5.6v3a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-.5H7.4v.5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-3Z"
+        fill="#e63946"
+      />
+      <path d="M6.6 10.4h10.8" stroke="#ffffff" strokeWidth="1.1" strokeLinecap="round" opacity="0.9" />
+      <circle cx="8" cy="16.3" r="1.6" fill="#1b2333" />
+      <circle cx="16" cy="16.3" r="1.6" fill="#1b2333" />
     </svg>
   );
 }
@@ -445,8 +439,8 @@ const testimonials = [
 ];
 
 const faqs = [
-  { question: 'How does Vinscope Kenya work?', answer: 'Enter a VIN to receive a sample report with ownership, theft, mileage, accident, and status insights.' },
-  { question: 'What information appears in the report?', answer: 'The prototype highlights the key indicators that users need when evaluating used vehicles.' },
+  { question: 'How does Vinscope Kenya work?', answer: 'Enter a VIN to receive a vehicle report with ownership, theft, mileage, accident, and status insights.' },
+  { question: 'What information appears in the report?', answer: 'The vehicles mileage history, theft status, accident records and previous ownerships' },
   { question: 'Why is this useful for buyers?', answer: 'It brings critical history data into one place so buyers can compare options confidently.' },
 ];
 
@@ -1448,14 +1442,14 @@ function App() {
                 <span className="badge-icon"><IconCar /></span>
                 <span>
                   <strong>Accident Records</strong>
-                  <em>Check for past collisions and repairs</em>
+                  <em>Check for past recorded accidents and repairs</em>
                 </span>
               </button>
               <button className="badge-card" onClick={() => goToSection('sample-report')}>
                 <span className="badge-icon"><IconLock /></span>
                 <span>
                   <strong>Theft &amp; Ownership</strong>
-                  <em>Verify theft status and ownership history</em>
+                  <em>Verify theft status and previous ownership history</em>
                 </span>
               </button>
             </section>
@@ -1883,7 +1877,7 @@ function App() {
 
             <section className="cta-banner reveal">
               <h2>Get Started with VinScope Kenya Today!</h2>
-              <p>Vinscope Kenya can grow into a full, market-ready vehicle-history platform for Kenyan buyers and sellers.</p>
+              <p>Vinscope Kenya is a market-ready vehicle-history platform for Kenyan buyers and sellers.</p>
               <div className="cta-actions">
                 <button className="btn-white" onClick={() => goToSection('hero')}>Check VIN Now</button>
                 <button className="btn-outline-white" onClick={() => openAuth('register')}>Sign Up Free</button>
