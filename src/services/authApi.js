@@ -3,11 +3,35 @@ import { requestJson } from './vehicleApi';
 // Real, server-backed auth against Postgres (bcrypt-hashed passwords + an httpOnly JWT cookie).
 // Replaces the old localStorage-based mockApi.js.
 
-export async function registerUser(email, password, name) {
+export async function registerUser(email, password, name, phone, code, verificationMethod) {
   try {
     const data = await requestJson('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, password, name, phone, code, verificationMethod }),
+    });
+    return { success: true, user: data.user };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+export async function sendPhoneOtp(phone, purpose = 'register') {
+  try {
+    const data = await requestJson('/api/auth/otp/send', {
+      method: 'POST',
+      body: JSON.stringify({ phone, purpose }),
+    });
+    return { success: true, ...data };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+export async function loginWithPhoneOtp(phone, code) {
+  try {
+    const data = await requestJson('/api/auth/otp/login', {
+      method: 'POST',
+      body: JSON.stringify({ phone, code }),
     });
     return { success: true, user: data.user };
   } catch (error) {

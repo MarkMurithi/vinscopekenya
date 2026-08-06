@@ -87,3 +87,80 @@ test('register, login, and auth-guarded routes work end to end', async () => {
     server.close();
   }
 });
+
+test('SMS signup and passwordless phone login work end to end', async () => {
+  const { server, baseUrl } = await startServer();
+  const email = `phone-test-${Date.now()}-${Math.floor(Math.random() * 10000)}@example.com`;
+  const password = 'supersecret123';
+  const phone = `07${Math.floor(10000000 + Math.random() * 89999999)}`;
+
+  try {
+    const sendResponse = await fetch(`${baseUrl}/api/auth/otp/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, purpose: 'register' }),
+    });
+    assert.equal(sendResponse.status, 200);
+    const sendPayload = await sendResponse.json();
+    assert.ok(sendPayload.demoCode, 'expected a demo code since SMS is not configured in tests');
+
+    // Registering with the wrong code must be rejected.
+    const badRegister = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name: 'Phone User', phone, code: '000000', verificationMethod: 'sms' }),
+    });
+    assert.equal(badRegister.status, 400);
+
+    // Re-send since the failed attempt above did not consume the original code, but request a fresh one for clarity.
+    const resendResponse = await fetch(`${baseUrl}/api/auth/otp/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, purpose: 'register' }),
+    });
+    const resendPayload = await resendResponse.json();
+
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name: 'Phone User', phone, code: resendPayload.demoCode, verificationMethod: 'sms' }),
+    });
+    assert.equal(registerResponse.status, 201);
+
+    // Sending another registration code for the same phone should now be rejected (already registered).
+    const duplicateSend = await fetch(`${baseUrl}/api/auth/otp/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, purpose: 'register' }),
+    });
+    assert.equal(duplicateSend.status, 409);
+
+    // A phone number with no account cannot request a login code.
+    const unknownPhoneLogin = await fetch(`${baseUrl}/api/auth/otp/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '0798712345', purpose: 'login' }),
+    });
+    assert.equal(unknownPhoneLogin.status, 404);
+
+    // Passwordless login with the registered phone number.
+    const loginSendResponse = await fetch(`${baseUrl}/api/auth/otp/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, purpose: 'login' }),
+    });
+    assert.equal(loginSendResponse.status, 200);
+    const loginSendPayload = await loginSendResponse.json();
+
+    const loginResponse = await fetch(`${baseUrl}/api/auth/otp/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, code: loginSendPayload.demoCode }),
+    });
+    assert.equal(loginResponse.status, 200);
+    const loginPayload = await loginResponse.json();
+    assert.equal(loginPayload.user.email, email);
+  } finally {
+    server.close();
+  }
+});

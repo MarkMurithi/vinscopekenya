@@ -9,6 +9,8 @@ import {
   saveVehicleReport,
   deleteVehicleReport,
   setReportComparisonSelection,
+  sendPhoneOtp,
+  loginWithPhoneOtp,
 } from './services/authApi';
 import { lookupVehicleByVin, pingVehicleApi } from './services/vehicleApi';
 import { startMpesaPayment, getPaymentStatus } from './services/paymentsApi';
@@ -718,6 +720,12 @@ function App() {
   const [verificationContact, setVerificationContact] = useState('');
   const [verificationCodeSent, setVerificationCodeSent] = useState(false);
   const [verificationError, setVerificationError] = useState('');
+  const [codeInput, setCodeInput] = useState('');
+  const [phoneLoginMode, setPhoneLoginMode] = useState(false);
+  const [phoneLoginPhone, setPhoneLoginPhone] = useState('');
+  const [phoneLoginCode, setPhoneLoginCode] = useState('');
+  const [phoneLoginCodeSent, setPhoneLoginCodeSent] = useState(false);
+  const [phoneLoginError, setPhoneLoginError] = useState('');
   const [savedReportSearch, setSavedReportSearch] = useState('');
   const [savedReportFilter, setSavedReportFilter] = useState('all');
   const [analytics, setAnalytics] = useState(() => {
@@ -778,6 +786,8 @@ function App() {
   const openAuth = (mode) => {
     setAuthMode(mode);
     setFormErrors({});
+    setPhoneLoginMode(false);
+    setPhoneLoginError('');
     setView('account');
   };
 
@@ -813,19 +823,43 @@ function App() {
     };
   }, []);
 
-  const sendVerificationCode = () => {
+  const sendVerificationCode = async () => {
+    if (verificationMethod === 'sms') {
+      const contact = verificationContact.trim();
+      if (!contact) {
+        setVerificationError('Enter your phone number to receive a code.');
+        return;
+      }
+
+      setVerificationError('');
+      setMessage('Sending verification code...');
+      const result = await sendPhoneOtp(contact, 'register');
+      if (!result.success) {
+        setVerificationError(result.message || 'Could not send the SMS code. Please try again.');
+        setMessage('');
+        return;
+      }
+
+      setVerificationCodeSent(true);
+      setVerificationStep('verify');
+      setMessage(
+        result.demoCode
+          ? `Verification code sent to ${maskContact(contact, 'sms')}. (Demo mode - code: ${result.demoCode})`
+          : `Verification code sent to ${maskContact(contact, 'sms')} via SMS.`
+      );
+      return;
+    }
+
     if (!EMAIL_REGEX.test(email)) {
       setVerificationError('Enter a valid email address before sending a verification code.');
       return;
     }
 
     const code = generateVerificationCode();
-    const method = verificationMethod === 'sms' ? 'sms' : 'email';
-    const contact = method === 'sms' ? verificationContact || '+254700000000' : email;
-    const maskedContact = maskContact(contact, method);
+    const maskedContact = maskContact(email, 'email');
 
     setVerificationCode(code);
-    setVerificationContact(contact);
+    setVerificationContact(email);
     setVerificationCodeSent(true);
     setVerificationError('');
     setMessage(`Verification code sent to ${maskedContact}. Use code ${code} to continue.`);
@@ -835,31 +869,94 @@ function App() {
   const handleVerificationSubmit = async (event) => {
     event.preventDefault();
 
-    if (!verificationCode.trim()) {
+    if (!codeInput.trim()) {
       setVerificationError('Enter the verification code sent to your inbox or phone.');
       return;
     }
 
-    const normalizedCode = verificationCode.trim();
-    if (normalizedCode !== String(verificationCodeSent ? verificationCode : '')) {
+    const isSms = verificationMethod === 'sms';
+    if (!isSms && codeInput.trim() !== verificationCode) {
       setVerificationError('That code does not match the one we sent.');
       return;
     }
 
-    const result = await registerUser(email, password, name || 'New Buyer');
+    const result = await registerUser(
+      email,
+      password,
+      name || 'New Buyer',
+      isSms ? verificationContact : undefined,
+      isSms ? codeInput.trim() : undefined,
+      isSms ? 'sms' : 'email'
+    );
     if (!result.success) {
+      setVerificationError(isSms ? result.message : '');
       setMessage(result.message);
       return;
     }
 
     setUser(result.user);
     setSavedReports(await getVehicleReports());
-    setMessage('Account created. Your email is verified and you can now access reports.');
+    setMessage(`Account created. Your ${isSms ? 'phone number' : 'email'} is verified and you can now access reports.`);
     setVerificationStep('signup');
     setVerificationCode('');
+    setCodeInput('');
     setVerificationCodeSent(false);
     setVerificationError('');
     setView('report');
+  };
+
+  const sendPhoneLoginCode = async () => {
+    setPhoneLoginError('');
+
+    if (!phoneLoginPhone.trim()) {
+      setPhoneLoginError('Enter the phone number linked to your account.');
+      return;
+    }
+
+    setMessage('Sending login code...');
+    const result = await sendPhoneOtp(phoneLoginPhone, 'login');
+    if (!result.success) {
+      setPhoneLoginError(result.message || 'Could not send the code. Please try again.');
+      setMessage('');
+      return;
+    }
+
+    setPhoneLoginCodeSent(true);
+    setMessage(
+      result.demoCode
+        ? `Login code sent to ${maskContact(phoneLoginPhone, 'sms')}. (Demo mode - code: ${result.demoCode})`
+        : `Login code sent to ${maskContact(phoneLoginPhone, 'sms')} via SMS.`
+    );
+  };
+
+  const handlePhoneLoginSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!phoneLoginCodeSent) {
+      await sendPhoneLoginCode();
+      return;
+    }
+
+    if (!phoneLoginCode.trim()) {
+      setPhoneLoginError('Enter the code we sent to your phone.');
+      return;
+    }
+
+    const result = await loginWithPhoneOtp(phoneLoginPhone, phoneLoginCode.trim());
+    if (!result.success) {
+      setPhoneLoginError(result.message || 'That code does not match.');
+      return;
+    }
+
+    setUser(result.user);
+    setSavedReports(await getVehicleReports());
+    setMessage(`Welcome back, ${result.user.name}.`);
+    setPhoneLoginMode(false);
+    setPhoneLoginPhone('');
+    setPhoneLoginCode('');
+    setPhoneLoginCodeSent(false);
+    setPhoneLoginError('');
+    setView('home');
   };
 
   const handleAuthSubmit = async (event) => {
@@ -887,7 +984,7 @@ function App() {
     }
 
     if (!verificationCodeSent) {
-      sendVerificationCode();
+      await sendVerificationCode();
       return;
     }
 
@@ -2156,20 +2253,60 @@ function App() {
                 <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" />
                 {formErrors.email && <p className="field-error">{formErrors.email}</p>}
                 {authMode === 'register' && verificationMethod === 'sms' && (
-                  <input value={verificationContact} onChange={(event) => setVerificationContact(event.target.value)} placeholder="Phone number" />
+                  <input
+                    value={verificationContact}
+                    onChange={(event) => setVerificationContact(event.target.value)}
+                    placeholder="Phone number e.g. 0712345678"
+                    disabled={verificationStep === 'verify'}
+                  />
                 )}
                 <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="Password" />
                 {formErrors.password && <p className="field-error">{formErrors.password}</p>}
                 {authMode === 'register' && verificationStep === 'verify' && (
-                  <input value={verificationCode} onChange={(event) => setVerificationCode(event.target.value)} placeholder="Enter verification code" />
+                  <input value={codeInput} onChange={(event) => setCodeInput(event.target.value)} placeholder="Enter verification code" />
                 )}
                 {verificationError && <p className="field-error">{verificationError}</p>}
-                <button type="submit" className="btn-red">{authMode === 'login' ? 'Continue' : verificationStep === 'verify' ? 'Verify account' : 'Send verification'}</button>
+                <button type="submit" className="btn-red">{authMode === 'login' ? 'Continue' : verificationStep === 'verify' ? 'Verify account' : verificationMethod === 'sms' ? 'Send SMS code' : 'Send verification'}</button>
               </form>
               <p className="status">{message}</p>
               <button className="btn-outline small" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>
                 Switch to {authMode === 'login' ? 'register' : 'login'}
               </button>
+
+              {authMode === 'login' && (
+                <div className="phone-login">
+                  <button
+                    type="button"
+                    className="btn-outline small"
+                    onClick={() => {
+                      setPhoneLoginMode((current) => !current);
+                      setPhoneLoginError('');
+                    }}
+                  >
+                    {phoneLoginMode ? 'Hide phone login' : 'Sign in with phone instead'}
+                  </button>
+
+                  {phoneLoginMode && (
+                    <form className="form-grid phone-login-form" onSubmit={handlePhoneLoginSubmit}>
+                      <input
+                        value={phoneLoginPhone}
+                        onChange={(event) => setPhoneLoginPhone(event.target.value)}
+                        placeholder="Phone number e.g. 0712345678"
+                        disabled={phoneLoginCodeSent}
+                      />
+                      {phoneLoginCodeSent && (
+                        <input
+                          value={phoneLoginCode}
+                          onChange={(event) => setPhoneLoginCode(event.target.value)}
+                          placeholder="Enter the code we sent you"
+                        />
+                      )}
+                      {phoneLoginError && <p className="field-error">{phoneLoginError}</p>}
+                      <button type="submit" className="btn-outline">{phoneLoginCodeSent ? 'Verify and sign in' : 'Send login code'}</button>
+                    </form>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="panel">

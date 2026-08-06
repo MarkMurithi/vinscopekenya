@@ -8,10 +8,10 @@ export function maskContact(contact = '', type = 'email') {
 
   if (type === 'sms') {
     if (contact.length <= 4) return contact;
-    return `${contact.slice(0, 4)}${'*'.repeat(Math.max(0, contact.length - 4))}`;
+    return `${contact.slice(0, 4)}*****`;
   }
 
   const [local, domain] = String(contact).split('@');
-  if (!domain) return `${local.slice(0, 2)}***`;
-  return `${local.slice(0, 2)}***@${domain}`;
+  if (!domain) return `${local.slice(0, 1)}***`;
+  return `${local.slice(0, 1)}***@${domain}`;
 }

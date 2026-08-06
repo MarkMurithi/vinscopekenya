@@ -23,6 +23,7 @@ import {
   initiateStkPush,
   parseStkCallback,
 } from './mpesa.js';
+import { issueOtp, verifyOtp, sendSms, isSmsConfigured } from './otp.js';
 
 const { Pool } = pkg;
 dotenv.config();
@@ -57,6 +58,13 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many attempts. Please try again later.' },
+});
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many code requests. Please try again later.' },
 });
 app.use('/api', apiLimiter);
 
@@ -320,6 +328,8 @@ const initializeDatabase = async () => {
 
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT false;');
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_method VARCHAR(20) NOT NULL DEFAULT 'email';");
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS users_phone_unique ON users (phone) WHERE phone IS NOT NULL;');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS saved_reports (
@@ -497,8 +507,74 @@ app.post('/api/vehicles', requireAuth, async (req, res) => {
 // Auth
 // ---------------------------------------------------------------------------
 
+// Sends a 6-digit SMS code to a phone number, for either 'register' (new signup)
+// or 'login' (existing account) purposes. In demo mode (no SMS provider configured)
+// the code is echoed back in the response outside of production so the flow can
+// still be tested end to end.
+app.post('/api/auth/otp/send', otpLimiter, async (req, res) => {
+  const { phone, purpose } = req.body || {};
+
+  const issued = issueOtp(phone);
+  if (!issued) {
+    return res.status(400).json({ error: 'Enter a valid Kenyan phone number (e.g. 0712345678).' });
+  }
+
+  try {
+    if (purpose === 'login') {
+      const { rows } = await pool.query('SELECT id FROM users WHERE phone = $1', [issued.normalized]);
+      if (!rows.length) {
+        return res.status(404).json({ error: 'No account found with that phone number.' });
+      }
+    } else {
+      const { rows } = await pool.query('SELECT id FROM users WHERE phone = $1', [issued.normalized]);
+      if (rows.length) {
+        return res.status(409).json({ error: 'An account with that phone number already exists.' });
+      }
+    }
+
+    await sendSms(issued.normalized, `Your Vinscope Kenya verification code is ${issued.code}. It expires in 5 minutes.`);
+  } catch (error) {
+    console.error('SMS send failed', error);
+    return res.status(502).json({ error: 'Could not send the SMS right now. Please try again.' });
+  }
+
+  const response = { success: true, expiresInSeconds: 300 };
+  if (!isSmsConfigured() && process.env.NODE_ENV !== 'production') {
+    response.demoCode = issued.code;
+  }
+
+  return res.json(response);
+});
+
+// Verifies a phone + code pair and logs the matching account in - passwordless login via SMS.
+app.post('/api/auth/otp/login', loginLimiter, async (req, res) => {
+  const { phone, code } = req.body || {};
+
+  const result = verifyOtp(phone, code);
+  if (!result.success) {
+    return res.status(400).json({ error: result.message });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, email, name, is_verified, verification_method FROM users WHERE phone = $1',
+      [result.normalized]
+    );
+    const user = rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'No account found with that phone number.' });
+    }
+
+    setAuthCookie(res, signToken({ id: user.id, email: user.email }));
+    return res.json({ user: { id: user.id, email: user.email, name: user.name, isVerified: user.is_verified, verificationMethod: user.verification_method } });
+  } catch (error) {
+    console.error('Phone login failed', error);
+    return res.status(500).json({ error: 'Login failed. Please try again.' });
+  }
+});
+
 app.post('/api/auth/register', registerLimiter, async (req, res) => {
-  const { email, password, name } = req.body || {};
+  const { email, password, name, phone, code, verificationMethod } = req.body || {};
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
@@ -511,6 +587,21 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
   }
 
   const normalizedEmail = email.trim().toLowerCase();
+  const usingSms = verificationMethod === 'sms';
+  let normalizedPhone = null;
+
+  if (usingSms) {
+    if (!phone || !code) {
+      return res.status(400).json({ error: 'Enter the SMS code sent to your phone.' });
+    }
+
+    const otpResult = verifyOtp(phone, code);
+    if (!otpResult.success) {
+      return res.status(400).json({ error: otpResult.message });
+    }
+
+    normalizedPhone = otpResult.normalized;
+  }
 
   try {
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
@@ -518,15 +609,22 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
       return res.status(409).json({ error: 'An account with that email already exists' });
     }
 
+    if (normalizedPhone) {
+      const existingPhone = await pool.query('SELECT id FROM users WHERE phone = $1', [normalizedPhone]);
+      if (existingPhone.rows.length) {
+        return res.status(409).json({ error: 'An account with that phone number already exists' });
+      }
+    }
+
     const passwordHash = await hashPassword(password);
     const { rows } = await pool.query(
-      'INSERT INTO users (email, password_hash, name, is_verified, verification_method) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, is_verified, verification_method',
-      [normalizedEmail, passwordHash, (name || '').trim() || 'Vinscope User', true, 'email']
+      'INSERT INTO users (email, password_hash, name, phone, is_verified, verification_method) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, name, phone, is_verified, verification_method',
+      [normalizedEmail, passwordHash, (name || '').trim() || 'Vinscope User', normalizedPhone, true, usingSms ? 'sms' : 'email']
     );
 
     const user = rows[0];
     setAuthCookie(res, signToken({ id: user.id, email: user.email }));
-    return res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, isVerified: user.is_verified, verificationMethod: user.verification_method } });
+    return res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, phone: user.phone, isVerified: user.is_verified, verificationMethod: user.verification_method } });
   } catch (error) {
     console.error('Registration failed', error);
     return res.status(500).json({ error: 'Registration failed. Please try again.' });
