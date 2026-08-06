@@ -370,6 +370,18 @@ const initializeDatabase = async () => {
     );
   `);
 
+  // Stored in Postgres (not an in-memory Map) so pending codes survive a
+  // redeploy or instance restart between /api/auth/otp/send and the follow-up
+  // verification request.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS otp_codes (
+      phone VARCHAR(20) PRIMARY KEY,
+      code_hash VARCHAR(64) NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
   for (const vehicle of seedVehicles) {
     await pool.query(
       `
@@ -514,7 +526,7 @@ app.post('/api/vehicles', requireAuth, async (req, res) => {
 app.post('/api/auth/otp/send', otpLimiter, async (req, res) => {
   const { phone, purpose } = req.body || {};
 
-  const issued = issueOtp(phone);
+  const issued = await issueOtp(pool, phone);
   if (!issued) {
     return res.status(400).json({ error: 'Enter a valid Kenyan phone number (e.g. 0712345678).' });
   }
@@ -563,7 +575,7 @@ app.post('/api/auth/otp/send', otpLimiter, async (req, res) => {
 app.post('/api/auth/otp/login', loginLimiter, async (req, res) => {
   const { phone, code } = req.body || {};
 
-  const result = verifyOtp(phone, code);
+  const result = await verifyOtp(pool, phone, code);
   if (!result.success) {
     return res.status(400).json({ error: result.message });
   }
@@ -608,7 +620,7 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Enter the SMS code sent to your phone.' });
     }
 
-    const otpResult = verifyOtp(phone, code);
+    const otpResult = await verifyOtp(pool, phone, code);
     if (!otpResult.success) {
       return res.status(400).json({ error: otpResult.message });
     }
