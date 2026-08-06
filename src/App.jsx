@@ -245,6 +245,19 @@ const buildBaselineMileageValues = (rand) => {
   return values;
 };
 
+// Builds a fluctuating (non-monotonic) trend for generic "varies from records" text -
+// distinct from the single-point rollback/gap/jump/flatline anomalies below.
+const buildVariesMileageValues = (rand) => {
+  const values = [];
+  let current = 18 + rand() * 12;
+  for (let i = 0; i < 6; i += 1) {
+    values.push(current);
+    const delta = (rand() - 0.35) * 32;
+    current = Math.max(current + delta, 8);
+  }
+  return values;
+};
+
 // Applies one anomaly pattern on top of the baseline trend to visualize a specific kind of inconsistency.
 const applyMileageAnomaly = (values, subtype, rand) => {
   const anomalyIndex = 2 + Math.floor(rand() * 2); // flag one of the middle recordings (index 2 or 3)
@@ -287,6 +300,7 @@ const MILEAGE_ANOMALY_LABELS = {
   gap: 'Gap between recordings',
   jump: 'Unverified mileage jump',
   flatline: 'Reading unchanged over time',
+  varies: 'Inconsistent readings across records',
 };
 
 function MileageCurveGraph({ mileage, vin }) {
@@ -305,7 +319,7 @@ function MileageCurveGraph({ mileage, vin }) {
     else if (/gap|missing|unrecorded|skipped/i.test(text)) subtype = 'gap';
     else if (/jump|spike|surge|sudden/i.test(text)) subtype = 'jump';
     else if (/frozen|stuck|unchanged|static/i.test(text)) subtype = 'flatline';
-    else subtype = ['rollback', 'gap', 'jump', 'flatline'][Math.floor(rand() * 4)];
+    else subtype = 'varies';
   }
 
   const toneLabel = tone === 'warn'
@@ -316,7 +330,7 @@ function MileageCurveGraph({ mileage, vin }) {
 
   const baseValues = buildBaselineMileageValues(rand);
   const { values, anomalyIndex } = tone === 'warn'
-    ? applyMileageAnomaly(baseValues, subtype, rand)
+    ? (subtype === 'varies' ? { values: buildVariesMileageValues(rand), anomalyIndex: null } : applyMileageAnomaly(baseValues, subtype, rand))
     : { values: baseValues, anomalyIndex: null };
 
   const maxKm = 160000;
