@@ -23,7 +23,7 @@ import {
   initiateStkPush,
   parseStkCallback,
 } from './mpesa.js';
-import { issueOtp, verifyOtp, sendSms, isSmsConfigured } from './otp.js';
+import { issueOtp, verifyOtp, sendSms } from './otp.js';
 
 const { Pool } = pkg;
 dotenv.config();
@@ -537,7 +537,6 @@ app.post('/api/auth/otp/send', otpLimiter, async (req, res) => {
   }
 
   const demoModeAllowed = process.env.NODE_ENV !== 'production' || process.env.OTP_DEMO_MODE === 'true';
-  let smsDeliveryFailed = false;
   try {
     await sendSms(issued.normalized, `Your Vinscope Kenya verification code is ${issued.code}. It expires in 5 minutes.`);
   } catch (error) {
@@ -545,12 +544,15 @@ app.post('/api/auth/otp/send', otpLimiter, async (req, res) => {
     if (!demoModeAllowed) {
       return res.status(502).json({ error: 'Could not send the SMS right now. Please try again.' });
     }
-    // Provider is configured but failing (e.g. bad credentials) - degrade to demo mode instead of blocking the user.
-    smsDeliveryFailed = true;
+    // Provider is configured but failing (e.g. bad credentials) - fall through to the demo code below.
   }
 
   const response = { success: true, expiresInSeconds: 300 };
-  if ((smsDeliveryFailed || !isSmsConfigured()) && demoModeAllowed) {
+  // Africa's Talking can report a synchronous "Success" that only means the message was
+  // queued, not that it actually reached the handset - real delivery failures happen
+  // asynchronously and aren't visible here. So whenever demo mode is allowed, always
+  // include the code as a guaranteed fallback rather than trusting the SMS "succeeded".
+  if (demoModeAllowed) {
     response.demoCode = issued.code;
   }
 
