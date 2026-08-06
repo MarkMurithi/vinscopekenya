@@ -4,6 +4,7 @@
   --red: #e63946;
   --red-dark: #c1121f;
   --green: #2a9d5c;
+  --amber: #c98a1a;
   --gray-50: #f5f7fb;
   --gray-100: #eef1f6;
   --gray-200: #e2e7ef;
@@ -1011,7 +1012,59 @@ button {
 
 .report-card {
   display: grid;
+  gap: 18px;
+}
+
+.report-letterhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.report-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.report-brand-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: var(--navy);
+  color: var(--white);
+  flex-shrink: 0;
+}
+
+.report-doc-title {
+  margin: 0;
+  color: var(--navy);
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.report-doc-subtitle {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.report-meta {
+  display: grid;
+  gap: 4px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.report-meta strong {
+  color: var(--text);
 }
 
 .report-header {
@@ -1022,20 +1075,227 @@ button {
   flex-wrap: wrap;
 }
 
-.score-pill {
+.report-status-line {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.status-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.status-chip.ok {
+  background: rgba(42, 157, 92, 0.12);
+  color: var(--green);
+}
+
+.status-chip.warn {
+  background: rgba(230, 57, 70, 0.12);
+  color: var(--red);
+}
+
+.status-chip.neutral {
+  background: var(--gray-100);
+  color: var(--navy);
+}
+
+.report-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.score-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 10px 18px;
+  border-radius: 14px;
   background: var(--gray-100);
   border: 1px solid var(--gray-200);
+  flex-wrap: wrap;
+}
+
+.score-summary .score-value {
+  font-size: 1.6rem;
+  font-weight: 800;
   color: var(--navy);
-  padding: 8px 14px;
-  border-radius: 999px;
+}
+
+.score-summary .score-value-empty {
+  color: var(--text-muted);
+}
+
+.score-summary .score-max {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.score-summary .score-tier-label {
+  width: 100%;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.score-summary.tone-ok .score-value,
+.score-summary.tone-ok .score-tier-label {
+  color: var(--green);
+}
+
+.score-summary.tone-caution .score-value,
+.score-summary.tone-caution .score-tier-label {
+  color: var(--amber);
+}
+
+.score-summary.tone-warn .score-value,
+.score-summary.tone-warn .score-tier-label {
+  color: var(--red);
+}
+
+.report-action-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-section-title {
+  margin: 4px 0 0;
+  color: var(--navy);
+  font-size: 0.95rem;
   font-weight: 700;
 }
 
-.meta-grid {
+.risk-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
+}
+
+.risk-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--gray-200);
+  background: var(--gray-50);
+}
+
+.risk-card .risk-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+
+.risk-card .risk-title {
+  margin: 0;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.risk-card .risk-value {
+  margin: 2px 0 0;
   color: var(--text);
+  font-size: 0.92rem;
+}
+
+.risk-card.ok {
+  border-color: rgba(42, 157, 92, 0.35);
+  background: rgba(42, 157, 92, 0.06);
+}
+
+.risk-card.ok .risk-icon {
+  color: var(--green);
+}
+
+.risk-card.warn {
+  border-color: rgba(230, 57, 70, 0.35);
+  background: rgba(230, 57, 70, 0.06);
+}
+
+.risk-card.warn .risk-icon {
+  color: var(--red);
+}
+
+.risk-card.unknown .risk-icon,
+.risk-card.neutral .risk-icon {
+  color: var(--navy);
+}
+
+.specs-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+}
+
+.specs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.specs-table th,
+.specs-table td {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.specs-table tr:last-child th,
+.specs-table tr:last-child td {
+  border-bottom: none;
+}
+
+.specs-table th {
+  width: 40%;
+  color: var(--text-muted);
+  font-weight: 600;
+  background: var(--gray-50);
+}
+
+.specs-table td {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.report-footnote {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-style: italic;
+  border-top: 1px solid var(--gray-200);
+  padding-top: 12px;
+}
+
+@media print {
+  .topbar,
+  .footer,
+  .recent-searches-panel,
+  .report-action-buttons,
+  .btn-outline.full {
+    display: none !important;
+  }
+
+  .panel:not(.report-card) {
+    display: none !important;
+  }
+
+  .report-card {
+    box-shadow: none;
+    border: none;
+  }
 }
 
 .compare-card {

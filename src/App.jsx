@@ -12,7 +12,7 @@ import {
 } from './services/authApi';
 import { lookupVehicleByVin, pingVehicleApi } from './services/vehicleApi';
 import { startMpesaPayment, getPaymentStatus } from './services/paymentsApi';
-import { buildComparisonChartData, buildVehicleHistorySections, filterSavedReports } from './utils/reportUtils';
+import { buildComparisonChartData, buildVehicleHistorySections, filterSavedReports, getScoreTier } from './utils/reportUtils';
 import { generateVerificationCode, maskContact } from './utils/verificationUtils';
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -826,7 +826,22 @@ function App() {
   const historyAvailable = selectedReport.historyAvailable !== false;
   const theftStatus = !historyAvailable ? 'unknown' : /no/i.test(selectedReport.theft) ? 'ok' : 'warn';
   const accidentStatus = !historyAvailable ? 'unknown' : /no|not/i.test(selectedReport.accidents) ? 'ok' : 'warn';
-  const statusIcon = (status) => (status === 'unknown' ? <IconInfoCircle /> : status === 'ok' ? <IconCheckCircle /> : <IconWarningCircle />);
+  const ownershipStatus = !historyAvailable ? 'unknown' : 'neutral';
+  const mileageStatus = !historyAvailable ? 'unknown' : /consistent|appears/i.test(selectedReport.mileage || '') ? 'ok' : 'warn';
+  const statusIcon = (status) => {
+    if (status === 'unknown' || status === 'neutral') return <IconInfoCircle />;
+    return status === 'ok' ? <IconCheckCircle /> : <IconWarningCircle />;
+  };
+  const reportScoreTier = getScoreTier(selectedReport.score);
+  const reportStatusTone = /verified|clear/i.test(selectedReport.status || '')
+    ? 'ok'
+    : /review|flag/i.test(selectedReport.status || '')
+      ? 'warn'
+      : 'neutral';
+  const reportGeneratedAt = useMemo(
+    () => new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'long', day: 'numeric' }),
+    [selectedReport.vin]
+  );
 
   return (
     <div className="app-shell">
@@ -1202,14 +1217,44 @@ function App() {
             </div>
 
             <div className="panel report-card">
+              <div className="report-letterhead">
+                <div className="report-brand">
+                  <span className="report-brand-icon"><IconLogo /></span>
+                  <div>
+                    <p className="report-doc-title">Vehicle History Report</p>
+                    <p className="report-doc-subtitle">Prepared by VinScope Kenya</p>
+                  </div>
+                </div>
+                <div className="report-meta">
+                  <span>Report ref: <strong>{selectedReport.vin || '—'}</strong></span>
+                  <span>Generated: <strong>{reportGeneratedAt}</strong></span>
+                </div>
+              </div>
+
               <div className="report-header">
                 <div>
-                  <p className="eyebrow">Active report</p>
-                  <h3>{selectedReport.make} {selectedReport.model}</h3>
+                  <p className="eyebrow">Vehicle</p>
+                  <h3>{selectedReport.make} {selectedReport.model}{selectedReport.year ? ` (${selectedReport.year})` : ''}</h3>
+                  <p className="report-status-line">
+                    Status: <span className={`status-chip ${reportStatusTone}`}>{selectedReport.status}</span>
+                  </p>
                 </div>
                 <div className="report-actions">
-                  <span className="score-pill">{selectedReport.score != null ? `${selectedReport.score}/100` : 'No score'}</span>
-                  <button className="btn-outline small" onClick={saveCurrentReport}>Save report</button>
+                  <div className={`score-summary tone-${reportScoreTier.tone}`}>
+                    {selectedReport.score != null ? (
+                      <>
+                        <span className="score-value">{selectedReport.score}</span>
+                        <span className="score-max">/100</span>
+                      </>
+                    ) : (
+                      <span className="score-value score-value-empty">—</span>
+                    )}
+                    <span className="score-tier-label">{reportScoreTier.label}</span>
+                  </div>
+                  <div className="report-action-buttons">
+                    <button className="btn-outline small" onClick={saveCurrentReport}>Save report</button>
+                    <button className="btn-outline small" onClick={() => window.print()}>Print / Save PDF</button>
+                  </div>
                 </div>
               </div>
               {loadingVehicle ? (
@@ -1232,19 +1277,53 @@ function App() {
                       Accident, theft, ownership, and mileage history are not publicly available for this VIN.
                     </p>
                   )}
-                  <div className="meta-grid">
-                    <div><strong>Year:</strong> {selectedReport.year ?? 'Unknown'}</div>
-                    <div><strong>VIN:</strong> {selectedReport.vin}</div>
-                    <div><strong>Status:</strong> {selectedReport.status}</div>
-                    <div><strong>Theft:</strong> {selectedReport.theft}</div>
-                    <div><strong>Ownership:</strong> {selectedReport.ownership}</div>
-                    <div><strong>Accidents:</strong> {selectedReport.accidents}</div>
-                    <div><strong>Mileage:</strong> {selectedReport.mileage}</div>
-                    {selectedReport.manufacturer && <div><strong>Manufacturer:</strong> {selectedReport.manufacturer}</div>}
-                    {selectedReport.plantCountry && <div><strong>Plant country:</strong> {selectedReport.plantCountry}</div>}
-                    {selectedReport.bodyClass && <div><strong>Body class:</strong> {selectedReport.bodyClass}</div>}
-                    {selectedReport.fuelType && <div><strong>Fuel type:</strong> {selectedReport.fuelType}</div>}
+
+                  <h4 className="report-section-title">Risk summary</h4>
+                  <div className="risk-grid">
+                    <div className={`risk-card ${theftStatus}`}>
+                      <span className="risk-icon">{statusIcon(theftStatus)}</span>
+                      <div>
+                        <p className="risk-title">Theft record</p>
+                        <p className="risk-value">{selectedReport.theft}</p>
+                      </div>
+                    </div>
+                    <div className={`risk-card ${accidentStatus}`}>
+                      <span className="risk-icon">{statusIcon(accidentStatus)}</span>
+                      <div>
+                        <p className="risk-title">Accident history</p>
+                        <p className="risk-value">{selectedReport.accidents}</p>
+                      </div>
+                    </div>
+                    <div className={`risk-card ${ownershipStatus}`}>
+                      <span className="risk-icon">{statusIcon(ownershipStatus)}</span>
+                      <div>
+                        <p className="risk-title">Ownership history</p>
+                        <p className="risk-value">{selectedReport.ownership}</p>
+                      </div>
+                    </div>
+                    <div className={`risk-card ${mileageStatus}`}>
+                      <span className="risk-icon">{statusIcon(mileageStatus)}</span>
+                      <div>
+                        <p className="risk-title">Mileage / odometer</p>
+                        <p className="risk-value">{selectedReport.mileage}</p>
+                      </div>
+                    </div>
                   </div>
+
+                  <h4 className="report-section-title">Vehicle specifications</h4>
+                  <div className="specs-table-wrap">
+                    <table className="specs-table">
+                      <tbody>
+                        <tr><th>VIN</th><td>{selectedReport.vin}</td></tr>
+                        <tr><th>Year</th><td>{selectedReport.year ?? 'Unknown'}</td></tr>
+                        {selectedReport.manufacturer && <tr><th>Manufacturer</th><td>{selectedReport.manufacturer}</td></tr>}
+                        {selectedReport.plantCountry && <tr><th>Plant country</th><td>{selectedReport.plantCountry}</td></tr>}
+                        {selectedReport.bodyClass && <tr><th>Body class</th><td>{selectedReport.bodyClass}</td></tr>}
+                        {selectedReport.fuelType && <tr><th>Fuel type</th><td>{selectedReport.fuelType}</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+
                   <div className="mileage-card">
                     <div className="mileage-copy">
                       <strong>Odometer trend</strong>
@@ -1255,6 +1334,11 @@ function App() {
                   <button className="btn-outline full" onClick={() => openVehicleDetail(selectedReport)}>
                     Open detailed vehicle history
                   </button>
+
+                  <p className="report-footnote">
+                    This report is compiled from available public and partner data sources at the time of the search.
+                    It is intended to support, not replace, an independent pre-purchase inspection.
+                  </p>
                 </>
               )}
             </div>

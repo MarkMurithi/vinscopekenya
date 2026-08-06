@@ -23,6 +23,16 @@ export const filterSavedReports = (reports, query = '') => {
   });
 };
 
+export const getScoreTier = (score) => {
+  const value = Number(score);
+
+  if (!Number.isFinite(value)) return { label: 'Not rated', tone: 'unknown' };
+  if (value >= 85) return { label: 'Excellent', tone: 'ok' };
+  if (value >= 70) return { label: 'Good', tone: 'ok' };
+  if (value >= 50) return { label: 'Fair', tone: 'caution' };
+  return { label: 'Poor', tone: 'warn' };
+};
+
 export const buildComparisonChartData = (reports = []) => {
   return reports.map((report, index) => ({
     id: report.vin || `${report.make}-${index}`,
