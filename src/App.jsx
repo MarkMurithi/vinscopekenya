@@ -305,7 +305,7 @@ const MILEAGE_ANOMALY_LABELS = {
 
 function MileageCurveGraph({ mileage, vin }) {
   const text = String(mileage || '').toLowerCase();
-  const tone = /mismatch|inconsistent|vary|discrep|rollback|gap|jump|spike|surge|frozen|stuck|unchanged|decreas/i.test(text)
+  const tone = /mismatch|inconsistent|vari|discrep|rollback|gap|jump|spike|surge|frozen|stuck|unchanged|decreas/i.test(text)
     ? 'warn'
     : /consistent|appears/i.test(text)
       ? 'ok'
