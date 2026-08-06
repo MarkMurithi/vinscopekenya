@@ -88,22 +88,14 @@ button {
   cursor: pointer;
 }
 
-.brand-mark {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: var(--white);
-  border: 1px solid var(--gray-200);
-  box-shadow: var(--shadow);
+.brand-logo-img {
+  height: 56px;
+  width: auto;
   flex-shrink: 0;
 }
 
-.brand-mark.small {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+.brand-logo-img.small {
+  height: 46px;
 }
 
 .brand {
@@ -1231,14 +1223,9 @@ button {
   gap: 12px;
 }
 
-.report-brand-icon {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
-  background: var(--white);
-  border: 1px solid var(--gray-200);
+.report-brand-logo {
+  height: 56px;
+  width: auto;
   flex-shrink: 0;
 }
 

@@ -19,21 +19,6 @@ import { generateVerificationCode, maskContact } from './utils/verificationUtils
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function IconLogo(props) {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" {...props}>
-      <circle cx="10" cy="10" r="7" fill="#ffffff" stroke="#14213d" strokeWidth="2" />
-      <path
-        d="M6.3 11.6 6.9 9.3a1.3 1.3 0 0 1 1.25-.95h3.7a1.3 1.3 0 0 1 1.25.95l.6 2.3v1.15a.55.55 0 0 1-.55.55h-.5a.55.55 0 0 1-.55-.55v-.2H7.9v.2a.55.55 0 0 1-.55.55h-.5a.55.55 0 0 1-.55-.55v-1.15Z"
-        fill="#e63946"
-      />
-      <circle cx="8.1" cy="12.5" r="0.85" fill="#14213d" />
-      <circle cx="11.9" cy="12.5" r="0.85" fill="#14213d" />
-      <path d="M15 15 20 20" stroke="#e63946" strokeWidth="2.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function IconCar(props) {
   return (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -1375,10 +1360,7 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand-group" onClick={() => setView('home')} role="button" tabIndex={0}>
-          <div className="brand-mark"><IconLogo /></div>
-          <p className="brand">
-            <span className="brand-navy">VinScope</span> <span className="brand-red">KENYA</span>
-          </p>
+          <img src="/images/vinscope-logo.png" alt="VinScope Kenya" className="brand-logo-img" />
         </div>
         <nav className="nav-links" aria-label="Main navigation">
           <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}>Home</button>
@@ -1919,7 +1901,7 @@ function App() {
             <div className="panel report-card">
               <div className="report-letterhead">
                 <div className="report-brand">
-                  <span className="report-brand-icon"><IconLogo /></span>
+                  <img src="/images/vinscope-logo.png" alt="VinScope Kenya" className="report-brand-logo" />
                   <div>
                     <p className="report-doc-title">Vehicle History Report</p>
                     <p className="report-doc-subtitle">Prepared by VinScope Kenya</p>
@@ -2517,8 +2499,7 @@ function App() {
       <footer id="contact" className="footer">
         <div className="footer-inner">
           <div className="footer-brand">
-            <div className="brand-mark small"><IconLogo /></div>
-            <p className="brand"><span className="brand-navy">VinScope</span> <span className="brand-red">KENYA</span></p>
+            <img src="/images/vinscope-logo.png" alt="VinScope Kenya" className="brand-logo-img small" />
           </div>
           <div className="footer-links">
             <button onClick={() => setView('home')}>Home</button>
