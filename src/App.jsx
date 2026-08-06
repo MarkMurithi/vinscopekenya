@@ -271,13 +271,7 @@ function MileageCurveGraph({ mileage }) {
       return `M ${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
     }
 
-    const prev = points[index - 1];
-    const cp1x = prev.x + (point.x - prev.x) / 3;
-    const cp1y = prev.y - (point.y - prev.y) * 0.2;
-    const cp2x = prev.x + ((point.x - prev.x) * 2) / 3;
-    const cp2y = point.y + (point.y - prev.y) * 0.2;
-
-    return `${acc} C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
+    return `${acc} L ${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
   }, '');
 
   const stroke = tone === 'warn' ? '#e63946' : tone === 'ok' ? '#16a34a' : '#5b6c97';
