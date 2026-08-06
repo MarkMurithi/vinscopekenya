@@ -325,6 +325,12 @@ button {
   padding: 20px;
   box-shadow: var(--shadow);
   text-align: left;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.badge-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(8, 15, 29, 0.16);
 }
 
 .badge-icon {
@@ -440,6 +446,15 @@ button {
   box-shadow: var(--shadow);
 }
 
+.cards article {
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.cards article:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px rgba(8, 15, 29, 0.16);
+}
+
 .cards article h3,
 .panel h2,
 .panel h3,
@@ -499,6 +514,12 @@ button {
   flex-direction: column;
   gap: 4px;
   text-align: center;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.stat-box:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 32px rgba(8, 15, 29, 0.14);
 }
 
 .stat-box strong {
@@ -1594,6 +1615,32 @@ button {
   margin: 0;
 }
 
+.legal-page {
+  display: grid;
+  gap: 26px;
+}
+
+.legal-section h3 {
+  margin: 0 0 8px;
+  color: var(--navy);
+  font-size: 1.05rem;
+}
+
+.legal-section p {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.legal-section ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  display: grid;
+  gap: 6px;
+}
+
 .detail-overview {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -1974,6 +2021,73 @@ button {
   border-color: var(--navy);
 }
 
+/* Scroll-reveal: elements fade + slide up into view via IntersectionObserver. */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+.cards .reveal:nth-child(2) {
+  transition-delay: 90ms;
+}
+
+.cards .reveal:nth-child(3) {
+  transition-delay: 180ms;
+}
+
+.cards .reveal:nth-child(4) {
+  transition-delay: 270ms;
+}
+
+.cards .reveal:nth-child(5) {
+  transition-delay: 360ms;
+}
+
+.stats-row .reveal:nth-child(2) {
+  transition-delay: 90ms;
+}
+
+.stats-row .reveal:nth-child(3) {
+  transition-delay: 180ms;
+}
+
+/* View transitions: fade + slide in whenever the active page changes. */
+.view-transition {
+  animation: view-fade-in 0.35s ease both;
+}
+
+@keyframes view-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.btn-red:active,
+.btn-outline:active,
+.btn-white:active,
+.btn-outline-white:active {
+  transform: scale(0.97);
+}
+
 /* Dark mode overrides: headings and labels that use --navy for text need a
    light color once their surfaces switch to a dark --surface/--gray-100. */
 :root[data-theme='dark'] .brand-navy,
@@ -2009,7 +2123,8 @@ button {
 :root[data-theme='dark'] .recent-search-item strong,
 :root[data-theme='dark'] .empty-state strong,
 :root[data-theme='dark'] .enterprise-tag,
-:root[data-theme='dark'] .checkout-summary-amount {
+:root[data-theme='dark'] .checkout-summary-amount,
+:root[data-theme='dark'] .legal-section h3 {
   color: #eef1f6;
 }
 

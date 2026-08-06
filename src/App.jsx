@@ -420,6 +420,155 @@ const faqs = [
   { question: 'Why is this useful for buyers?', answer: 'It brings critical history data into one place so buyers can compare options confidently.' },
 ];
 
+const LEGAL_LAST_UPDATED = 'August 6, 2026';
+
+const privacyPolicySections = [
+  {
+    title: '1. Introduction',
+    paragraphs: [
+      'VinScope Kenya ("VinScope Kenya", "we", "us", or "our") provides vehicle history lookup, comparison, and reporting services to buyers, sellers, and dealerships in Kenya. This Privacy Policy explains what personal data we collect, how we use it, and the choices you have. By using our website and services, you agree to the practices described here.',
+    ],
+  },
+  {
+    title: '2. Information We Collect',
+    list: [
+      'Account information: your name, email address, phone number, and password (stored as a secure hash) when you register.',
+      'Vehicle lookup data: VIN numbers and registration details you search, along with reports you choose to save.',
+      "Payment information: when you subscribe to a paid plan, we process your M-Pesa phone number or card details through Safaricom's Daraja API or our card payment processor. We do not store full card numbers or M-Pesa PINs on our servers.",
+      'Usage analytics: aggregated, non-identifying statistics such as the number of searches performed and which plans are most popular.',
+      'Communications: messages you send us through contact, support, or dealership quote request channels.',
+    ],
+  },
+  {
+    title: '3. How We Use Your Information',
+    list: [
+      'To create and manage your account and authenticate you when you log in.',
+      'To generate vehicle history reports and save your search and comparison history.',
+      'To process subscription payments and manage your billing plan.',
+      'To respond to enterprise and dealership quote requests.',
+      'To improve our services, troubleshoot issues, and detect fraud or abuse.',
+      'To send service-related communications, such as verification codes and payment confirmations.',
+    ],
+  },
+  {
+    title: '4. How We Share Information',
+    paragraphs: ['We do not sell your personal information. We may share data with:'],
+    list: [
+      'Payment processors (Safaricom M-Pesa Daraja API, card payment gateways) solely to complete transactions.',
+      'Vehicle data providers and registries, to the extent necessary to generate accurate reports.',
+      'Service providers who help us operate the platform (such as hosting and database providers), under confidentiality obligations.',
+      'Authorities, if required by law or to protect our rights, users, or the public.',
+    ],
+  },
+  {
+    title: '5. Data Retention',
+    paragraphs: [
+      'We retain account and report data for as long as your account is active, or as needed to provide our services, comply with legal obligations, resolve disputes, and enforce our agreements. You may request deletion of your account and associated data at any time.',
+    ],
+  },
+  {
+    title: '6. Your Rights',
+    paragraphs: [
+      'Under the Kenya Data Protection Act, 2019, you have the right to access, correct, or request deletion of your personal data, object to certain processing, and lodge a complaint with the Office of the Data Protection Commissioner. To exercise these rights, contact us using the details below.',
+    ],
+  },
+  {
+    title: '7. Cookies & Local Storage',
+    paragraphs: [
+      "We use your browser's local storage to remember your theme preference (light or dark mode) and basic usage analytics. We do not use third-party advertising cookies.",
+    ],
+  },
+  {
+    title: '8. Security',
+    paragraphs: [
+      'We use industry-standard measures, including password hashing and encrypted connections, to protect your information. No method of transmission or storage is 100% secure, and we cannot guarantee absolute security.',
+    ],
+  },
+  {
+    title: "9. Children's Privacy",
+    paragraphs: ['Our services are not directed at children under 18. We do not knowingly collect personal information from minors.'],
+  },
+  {
+    title: '10. Changes to This Policy',
+    paragraphs: ['We may update this Privacy Policy from time to time. We will post the revised version on this page with an updated effective date.'],
+  },
+  {
+    title: '11. Contact Us',
+    paragraphs: ['If you have questions about this Privacy Policy or your personal data, contact us at privacy@vinscopekenya.co.ke.'],
+  },
+];
+
+const termsOfServiceSections = [
+  {
+    title: '1. Acceptance of Terms',
+    paragraphs: [
+      "By accessing or using VinScope Kenya's website and services (the \"Service\"), you agree to be bound by these Terms of Service. If you do not agree, please do not use the Service.",
+    ],
+  },
+  {
+    title: '2. Description of Service',
+    paragraphs: [
+      'VinScope Kenya provides vehicle history lookups, risk assessments, comparison tools, and related subscription plans for vehicle buyers, sellers, and dealerships in Kenya. Reports are compiled from available data sources and are provided for informational purposes only.',
+    ],
+  },
+  {
+    title: '3. Account Registration',
+    paragraphs: [
+      'You must provide accurate, current information when creating an account and are responsible for maintaining the confidentiality of your login credentials and for all activity under your account. You must be at least 18 years old to register.',
+    ],
+  },
+  {
+    title: '4. Subscription Plans & Payments',
+    list: [
+      'Starter is a free plan with limited access to sample reports.',
+      'Pro is a paid monthly subscription billed via M-Pesa or card payment at the price shown at checkout.',
+      'Business/Enterprise pricing is custom and quoted directly to dealerships and fleet operators after a sales inquiry; no payment is collected until a separate agreement is signed.',
+      'Fees are billed in Kenyan Shillings (KSh) and are non-refundable except where required by law.',
+      'We reserve the right to change subscription pricing with reasonable notice.',
+    ],
+  },
+  {
+    title: '5. Acceptable Use',
+    paragraphs: [
+      'You agree not to misuse the Service to harass or defraud others, attempt to access data you are not authorized to view, reverse-engineer, scrape, or resell our reports without permission, or use the Service in violation of any applicable law.',
+    ],
+  },
+  {
+    title: '6. Vehicle Report Accuracy Disclaimer',
+    paragraphs: [
+      'Vehicle history reports are generated from third-party data sources and available records at the time of the request. VinScope Kenya does not guarantee the completeness or accuracy of any report and is not a substitute for an independent mechanical inspection. Purchase and sale decisions are made at your own risk.',
+    ],
+  },
+  {
+    title: '7. Intellectual Property',
+    paragraphs: [
+      'All content, branding, and software associated with VinScope Kenya are owned by us or our licensors and may not be copied, modified, or distributed without permission.',
+    ],
+  },
+  {
+    title: '8. Limitation of Liability',
+    paragraphs: [
+      'To the fullest extent permitted by law, VinScope Kenya shall not be liable for any indirect, incidental, or consequential damages arising from your use of the Service, including decisions made based on a vehicle history report.',
+    ],
+  },
+  {
+    title: '9. Termination',
+    paragraphs: ['We may suspend or terminate your account if you violate these Terms. You may close your account at any time by contacting us.'],
+  },
+  {
+    title: '10. Governing Law',
+    paragraphs: ['These Terms are governed by the laws of the Republic of Kenya. Any disputes shall be subject to the exclusive jurisdiction of the courts of Kenya.'],
+  },
+  {
+    title: '11. Changes to These Terms',
+    paragraphs: ['We may revise these Terms from time to time. Continued use of the Service after changes take effect constitutes acceptance of the revised Terms.'],
+  },
+  {
+    title: '12. Contact Us',
+    paragraphs: ['Questions about these Terms can be sent to legal@vinscopekenya.co.ke.'],
+  },
+];
+
 const steps = [
   { title: 'Enter vehicle details', text: 'Start with a VIN or registration number and unlock a vehicle profile instantly.' },
   { title: 'Review risk signals', text: 'Check theft alerts, accident history, ownership changes, and mileage consistency.' },
@@ -454,6 +603,36 @@ const pricingPlans = [
     custom: true,
   },
 ];
+
+// Animates a numeric value counting up from 0 whenever the target changes.
+function useCountUp(target, duration = 900) {
+  const [value, setValue] = useState(0);
+
+  useEffect(() => {
+    const numericTarget = Number(target) || 0;
+    if (numericTarget <= 0) {
+      setValue(0);
+      return undefined;
+    }
+
+    let frame;
+    let start = null;
+
+    const step = (timestamp) => {
+      if (start === null) start = timestamp;
+      const progress = Math.min((timestamp - start) / duration, 1);
+      setValue(Math.round(progress * numericTarget));
+      if (progress < 1) {
+        frame = requestAnimationFrame(step);
+      }
+    };
+
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [target, duration]);
+
+  return value;
+}
 
 function App() {
   const [view, setView] = useState('home');
@@ -548,6 +727,8 @@ function App() {
 
     return searched;
   }, [savedReportFilter, savedReportSearch, savedReports]);
+
+  const animatedSearchCount = useCountUp(analytics.totalSearches);
 
   const persistAnalytics = (nextAnalytics) => {
     setAnalytics(nextAnalytics);
@@ -887,9 +1068,7 @@ function App() {
 
     persistAnalytics(recordPlanSelection(analytics, plan));
     setActiveSubscription({ plan, method: 'Free' });
-    requestAnimationFrame(() => {
-      document.getElementById('subscription-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
+    goToSection('hero');
   };
 
   const handleMpesaPayment = async (plan) => {
@@ -999,6 +1178,28 @@ function App() {
 
   const toggleTheme = () => setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('IntersectionObserver' in window)) return undefined;
+
+    const elements = document.querySelectorAll('.reveal:not(.is-visible)');
+    if (!elements.length) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.15, rootMargin: '0px 0px -60px 0px' }
+    );
+
+    elements.forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, [view]);
+
   const historyAvailable = selectedReport.historyAvailable !== false;
   const theftStatus = !historyAvailable ? 'unknown' : /no/i.test(selectedReport.theft) ? 'ok' : 'warn';
   const accidentStatus = !historyAvailable ? 'unknown' : /no|not/i.test(selectedReport.accidents) ? 'ok' : 'warn';
@@ -1061,6 +1262,7 @@ function App() {
       </header>
 
       <main className="page">
+        <div key={view} className="view-transition">
         {view === 'home' && (
           <>
             <section id="hero" className="hero">
@@ -1107,7 +1309,7 @@ function App() {
               <p className="section-subtitle">Everything a buyer needs to make a confident, informed decision.</p>
               <div className="cards why-cards">
                 {whyChooseFeatures.map((item) => (
-                  <article key={item.title} className="why-card">
+                  <article key={item.title} className="why-card reveal">
                     <span className={`why-icon icon-${item.accent}`}><item.icon /></span>
                     <h3>{item.title}</h3>
                     <p>{item.text}</p>
@@ -1117,21 +1319,21 @@ function App() {
             </section>
 
             <section className="stats-row">
-              <div className="stat-box">
-                <strong>{analytics.totalSearches}+ searches</strong>
+              <div className="stat-box reveal">
+                <strong>{animatedSearchCount}+ searches</strong>
                 <span>VIN lookups tracked</span>
               </div>
-              <div className="stat-box">
+              <div className="stat-box reveal">
                 <strong>{getPopularPlan(analytics)}</strong>
                 <span>Most selected plan</span>
               </div>
-              <div className="stat-box">
+              <div className="stat-box reveal">
                 <strong>{stats[2].value}</strong>
                 <span>{stats[2].label}</span>
               </div>
             </section>
 
-            <section id="sample-report" className="section-block sample-report">
+            <section id="sample-report" className="section-block sample-report reveal">
               <div className="section-heading">
                 <span className="line" />
                 <h2>Sample Report</h2>
@@ -1185,7 +1387,7 @@ function App() {
               <h2>How It Works</h2>
               <div className="cards">
                 {steps.map((step) => (
-                  <article key={step.title}>
+                  <article key={step.title} className="reveal">
                     <h3>{step.title}</h3>
                     <p>{step.text}</p>
                   </article>
@@ -1193,7 +1395,7 @@ function App() {
               </div>
             </section>
 
-            <section className="section-block split">
+            <section className="section-block split reveal">
               <div>
                 <p className="eyebrow">Built for better decisions</p>
                 <h2>We check what sellers may not tell you.</h2>
@@ -1212,7 +1414,7 @@ function App() {
               <h2>Simple plans for every buyer</h2>
               <div className="cards pricing-grid">
                 {pricingPlans.map((plan) => (
-                  <article key={plan.name} className={`price-card${plan.highlight ? ' highlight' : ''}${plan.custom ? ' enterprise' : ''}`}>
+                  <article key={plan.name} className={`price-card reveal${plan.highlight ? ' highlight' : ''}${plan.custom ? ' enterprise' : ''}`}>
                     {plan.custom && <span className="enterprise-tag">For dealerships &amp; fleets</span>}
                     <h3>{plan.name}</h3>
                     <p className="price-tag">{plan.custom ? 'Custom pricing' : plan.price}</p>
@@ -1515,7 +1717,7 @@ function App() {
               <h2>What people say</h2>
               <div className="cards testimonial-grid">
                 {testimonials.map((item) => (
-                  <article key={item.name}>
+                  <article key={item.name} className="reveal">
                     <p>“{item.quote}”</p>
                     <strong>{item.name}</strong>
                   </article>
@@ -1523,7 +1725,7 @@ function App() {
               </div>
             </section>
 
-            <section className="cta-banner">
+            <section className="cta-banner reveal">
               <h2>Get Started with VinScope Kenya Today!</h2>
               <p>Vinscope Kenya can grow into a full, market-ready vehicle-history platform for Kenyan buyers and sellers.</p>
               <div className="cta-actions">
@@ -1532,7 +1734,7 @@ function App() {
               </div>
             </section>
 
-            <section id="faq" className="section-block">
+            <section id="faq" className="section-block reveal">
               <h2>Frequently asked questions</h2>
               <div className="faq-list">
                 {faqs.map((faq) => (
@@ -1963,6 +2165,63 @@ function App() {
             </div>
           </section>
         )}
+
+        {view === 'privacy' && (
+          <section className="stack">
+            <div className="panel legal-page">
+              <div className="detail-heading">
+                <div>
+                  <p className="eyebrow">Legal</p>
+                  <h2>Privacy Policy</h2>
+                  <p className="section-subtitle detail-subtitle">Last updated {LEGAL_LAST_UPDATED}</p>
+                </div>
+                <button className="btn-outline small" onClick={() => setView('home')}>Back to home</button>
+              </div>
+              {privacyPolicySections.map((section) => (
+                <div key={section.title} className="legal-section">
+                  <h3>{section.title}</h3>
+                  {section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                  {section.list && (
+                    <ul>
+                      {section.list.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {view === 'terms' && (
+          <section className="stack">
+            <div className="panel legal-page">
+              <div className="detail-heading">
+                <div>
+                  <p className="eyebrow">Legal</p>
+                  <h2>Terms of Service</h2>
+                  <p className="section-subtitle detail-subtitle">Last updated {LEGAL_LAST_UPDATED}</p>
+                </div>
+                <button className="btn-outline small" onClick={() => setView('home')}>Back to home</button>
+              </div>
+              {termsOfServiceSections.map((section) => (
+                <div key={section.title} className="legal-section">
+                  <h3>{section.title}</h3>
+                  {section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                  {section.list && (
+                    <ul>
+                      {section.list.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        </div>
       </main>
 
       <footer id="contact" className="footer">
@@ -1976,8 +2235,8 @@ function App() {
             <button onClick={() => goToSection('features')}>Features</button>
             <button onClick={() => setView('compare')}>Compare</button>
             <button onClick={() => openAuth('login')}>Account</button>
-            <a href="#privacy">Privacy Policy</a>
-            <a href="#terms">Terms of Service</a>
+            <button onClick={() => setView('privacy')}>Privacy Policy</button>
+            <button onClick={() => setView('terms')}>Terms of Service</button>
           </div>
           <div className="footer-social" aria-label="Social links">
             <a href="#" aria-label="Facebook"><span>f</span></a>
@@ -1986,7 +2245,7 @@ function App() {
             <a href="#" aria-label="LinkedIn"><span>in</span></a>
           </div>
         </div>
-        <p className="footer-copy">© {new Date().getFullYear()} VinScope Kenya. A vehicle-history platform for smarter buying in Kenya.</p>
+        <p className="footer-copy">© {new Date().getFullYear()} VinScope Kenya. A vehicle-history platform for smarter buying in Kenya.Developed by Mark Murithi</p>
       </footer>
     </div>
   );

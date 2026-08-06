@@ -10,7 +10,7 @@ test('initiateStkPush returns a demo checkout payload when M-Pesa is not configu
 
   const result = await initiateStkPush({
     phone: '0712345678',
-    amount: 999,
+    amount: 1500,
     plan: 'Pro',
     callbackUrl: 'https://example.com/api/payments/mpesa/callback',
   });

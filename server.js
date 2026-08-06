@@ -648,7 +648,7 @@ app.patch('/api/reports/:vin/comparison', requireAuth, async (req, res) => {
 // M-Pesa payments (Daraja STK Push)
 // ---------------------------------------------------------------------------
 
-const PLAN_AMOUNTS = { Starter: 0, Pro: 999, Business: 2999 };
+const PLAN_AMOUNTS = { Starter: 0, Pro: 1500, Business: 2999 };
 
 app.post('/api/payments/stkpush', requireAuth, async (req, res) => {
   const { plan, phone } = req.body || {};
