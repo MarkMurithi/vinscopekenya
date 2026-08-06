@@ -1059,6 +1059,7 @@ function App() {
         mileage: vehicle.mileage,
         score: vehicle.score,
         source: vehicle.source,
+        photo: vehicle.photo,
         historyAvailable: vehicle.historyAvailable,
         manufacturer: vehicle.manufacturer,
         plantCountry: vehicle.plantCountry,

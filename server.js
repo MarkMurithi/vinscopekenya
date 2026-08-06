@@ -1767,6 +1767,7 @@ const initializeDatabase = async () => {
   `);
 
   await pool.query('ALTER TABLE saved_reports ADD COLUMN IF NOT EXISTS selected_for_comparison BOOLEAN NOT NULL DEFAULT false;');
+  await pool.query('ALTER TABLE saved_reports ADD COLUMN IF NOT EXISTS photo TEXT;');
 
 
   await pool.query(`
@@ -2120,7 +2121,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 // Saved reports (per authenticated user)
 // ---------------------------------------------------------------------------
 
-const REPORT_COLUMNS = `vin, make, model, year, status, theft, ownership, accidents, mileage, score, saved_at AS "savedAt", selected_for_comparison AS "selectedForComparison"`;
+const REPORT_COLUMNS = `vin, make, model, year, status, theft, ownership, accidents, mileage, score, photo, saved_at AS "savedAt", selected_for_comparison AS "selectedForComparison"`;
 
 app.get('/api/reports', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
@@ -2138,12 +2139,12 @@ app.post('/api/reports', requireAuth, async (req, res) => {
 
   const { rows } = await pool.query(
     `
-      INSERT INTO saved_reports (user_id, vin, make, model, year, status, theft, ownership, accidents, mileage, score)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      INSERT INTO saved_reports (user_id, vin, make, model, year, status, theft, ownership, accidents, mileage, score, photo)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       ON CONFLICT (user_id, vin) DO UPDATE SET
         make = EXCLUDED.make, model = EXCLUDED.model, year = EXCLUDED.year, status = EXCLUDED.status,
         theft = EXCLUDED.theft, ownership = EXCLUDED.ownership, accidents = EXCLUDED.accidents,
-        mileage = EXCLUDED.mileage, score = EXCLUDED.score, saved_at = now()
+        mileage = EXCLUDED.mileage, score = EXCLUDED.score, photo = EXCLUDED.photo, saved_at = now()
       RETURNING ${REPORT_COLUMNS}
     `,
     [
@@ -2158,6 +2159,7 @@ app.post('/api/reports', requireAuth, async (req, res) => {
       report.accidents || null,
       report.mileage || null,
       report.score ?? null,
+      report.photo || null,
     ]
   );
 
