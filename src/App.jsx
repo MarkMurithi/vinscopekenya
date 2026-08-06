@@ -16,7 +16,6 @@ import { buildComparisonChartData, buildVehicleHistorySections, filterSavedRepor
 import { generateVerificationCode, maskContact } from './utils/verificationUtils';
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const HERO_VIN_GUIDE_IMAGE_URL = '/images/vin-photo.jpg';
 
 function IconLogo(props) {
   return (
@@ -882,20 +881,6 @@ function App() {
                   </form>
                   <p className="status">{message}</p>
                   <p className="status subtle">{loadingVehicle ? 'Loading vehicle details...' : apiStatus}</p>
-                </div>
-                <div className="hero-media">
-                  <div className="hero-guide-card">
-                    <div className="hero-guide-copy">
-                      <p className="hero-guide-label">VIN reading guide</p>
-                      <strong>See where buyers usually confirm the VIN before ordering a report.</strong>
-                    </div>
-                    <img
-                      className="hero-guide-image"
-                      src={HERO_VIN_GUIDE_IMAGE_URL}
-                      alt="Guide showing where to find a vehicle VIN"
-                      loading="eager"
-                    />
-                  </div>
                 </div>
               </div>
             </section>

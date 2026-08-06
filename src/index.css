@@ -233,12 +233,9 @@ button {
 .hero-inner {
   position: relative;
   z-index: 2;
-  max-width: 1180px;
+  max-width: 780px;
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  gap: 32px;
-  align-items: center;
+  text-align: center;
 }
 
 .hero-copy h1 {
@@ -254,6 +251,11 @@ button {
   color: #cfd7ea;
 }
 
+.hero-copy .subtitle {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .subtitle.small {
   font-size: 0.98rem;
 }
@@ -264,6 +266,8 @@ button {
   flex-wrap: wrap;
   margin-top: 22px;
   max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .hero-search input {
@@ -278,52 +282,6 @@ button {
 
 .hero-search .btn-red {
   border-radius: 0 8px 8px 0;
-}
-
-.hero-media {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.hero-guide-card {
-  width: 100%;
-  max-width: 430px;
-  padding: 14px;
-  border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: linear-gradient(180deg, rgba(7, 12, 22, 0.78), rgba(7, 12, 22, 0.56));
-  box-shadow: 0 26px 46px rgba(0, 0, 0, 0.35);
-}
-
-.hero-guide-copy {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.hero-guide-copy strong {
-  color: var(--white);
-  line-height: 1.4;
-}
-
-.hero-guide-label {
-  margin: 0;
-  color: #c7d2fe;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.hero-guide-image {
-  width: 100%;
-  height: auto;
-  display: block;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  object-fit: cover;
-  filter: saturate(0.82) contrast(1.02) brightness(0.9);
 }
 
 .hero-car {
@@ -1537,14 +1495,9 @@ button {
 }
 
 @media (max-width: 900px) {
-  .hero-inner,
   .split,
   .sample-grid {
     grid-template-columns: 1fr;
-  }
-
-  .hero-media {
-    order: -1;
   }
 
   .hero-badges {
