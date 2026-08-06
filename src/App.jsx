@@ -345,7 +345,7 @@ function IncidentEntryFields({ incident }) {
     return (
       <div className="incident-entry-row">
         <div>
-          <strong>Previous owner</strong>
+          <strong>{incident.isCurrentOwner ? 'Current owner' : 'Previous owner'}</strong>
           <span>{incident.ownerName}</span>
         </div>
         <div>
@@ -358,7 +358,7 @@ function IncidentEntryFields({ incident }) {
         </div>
         <div>
           <strong>Date sold</strong>
-          <span>{incident.saleDate}</span>
+          <span>{incident.saleDate || 'Still owns vehicle'}</span>
         </div>
       </div>
     );
@@ -401,7 +401,7 @@ const sampleReports = [
     vin: 'JTEBU5JR3K5001234',
     status: 'Verified',
     theft: 'No record',
-    ownership: 'Consistent',
+    ownership: '2 owners',
     accidents: '1 reported incident',
     mileage: 'Mileage appears consistent',
     score: 88,
@@ -435,6 +435,21 @@ const sampleReports = [
     accidents: 'No major accidents',
     mileage: 'Mileage consistent',
     score: 93,
+    source: 'demo',
+    historyAvailable: true,
+  },
+  {
+    id: 4,
+    make: 'Toyota',
+    model: 'Vitz',
+    year: 2022,
+    vin: 'JTDKAMFU5N3098765',
+    status: 'Verified',
+    theft: 'No record',
+    ownership: 'New Import',
+    accidents: '0 reported incidents',
+    mileage: 'Mileage appears consistent (new import)',
+    score: 98,
     source: 'demo',
     historyAvailable: true,
   },
@@ -1401,6 +1416,7 @@ function App() {
   const theftStatus = !historyAvailable ? 'unknown' : /no/i.test(selectedReport.theft) ? 'ok' : 'warn';
   const accidentStatus = !historyAvailable ? 'unknown' : /no|not/i.test(selectedReport.accidents) ? 'ok' : 'warn';
   const ownershipStatus = !historyAvailable ? 'unknown' : 'neutral';
+  const isNewImport = /new import/i.test(selectedReport.ownership || '');
   const mileageStatus = !historyAvailable ? 'unknown' : /consistent|appears/i.test(selectedReport.mileage || '') ? 'ok' : 'warn';
   const statusIcon = (status) => {
     if (status === 'unknown' || status === 'neutral') return <IconInfoCircle />;
@@ -2099,7 +2115,11 @@ function App() {
                         </div>
 
                         {incidentRecords[activeIncidentType].length === 0 ? (
-                          <p className="modal-copy">No recorded incidents found for this category.</p>
+                          <p className="modal-copy">
+                            {activeIncidentType === 'ownership' && isNewImport
+                              ? 'This vehicle is a new import and has not yet been bought and registered to an owner.'
+                              : 'No recorded incidents found for this category.'}
+                          </p>
                         ) : (
                           <div className="incident-list">
                             {incidentRecords[activeIncidentType].map((incident) => (
@@ -2155,7 +2175,11 @@ function App() {
                         <div key={type} className="incident-appendix-group">
                           <p className="incident-appendix-heading">{heading}</p>
                           {incidentRecords[type].length === 0 ? (
-                            <p className="incident-appendix-empty">No recorded incidents in this category.</p>
+                            <p className="incident-appendix-empty">
+                              {type === 'ownership' && isNewImport
+                                ? 'This vehicle is a new import and has not yet been bought and registered to an owner.'
+                                : 'No recorded incidents in this category.'}
+                            </p>
                           ) : (
                             <div className="incident-list">
                               {incidentRecords[type].map((incident) => (

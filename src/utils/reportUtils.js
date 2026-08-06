@@ -93,6 +93,7 @@ const randomDate = (rand, yearsAgoMax) => {
 const extractCount = (text = '', defaultWhenUnclear = 0) => {
   const match = String(text).match(/(\d+)/);
   if (match) return Number(match[1]);
+  if (/new import|not yet registered|awaiting registration|unregistered/i.test(text)) return 0;
   if (/single|one owner/i.test(text)) return 1;
   if (/no |none|clear/i.test(text)) return 0;
   return defaultWhenUnclear;
@@ -167,6 +168,28 @@ export const buildIncidentRecords = (report = {}) => {
       description: `Owner ${index + 1}, ${ownerName}, sold the vehicle after registering it as the transfer of ownership.`,
     };
   });
+
+  // Append the current owner whenever the vehicle has been registered to at least one owner, so the
+  // history doesn't end at the last sale (or stay empty for single-owner cars) with no record of who holds it now.
+  if (ownerCount > 0) {
+    const currentOwnerName = randomOwnerName(rand);
+    const currentOwnerPhone = randomOwnerPhone(rand);
+    const currentPurchaseDate = ownershipDates[transferCount];
+    ownership.push({
+      id: `ownership-${transferCount + 1}`,
+      ownerNumber: transferCount + 1,
+      ownerName: currentOwnerName,
+      ownerPhone: currentOwnerPhone,
+      purchaseDate: currentPurchaseDate,
+      saleDate: null,
+      dateRecorded: currentPurchaseDate,
+      location: pick(rand, KENYA_LOCATIONS),
+      outcome: 'Current registered owner',
+      reportedBy: 'National Transport and Safety Authority (NTSA)',
+      isCurrentOwner: true,
+      description: `Owner ${transferCount + 1}, ${currentOwnerName}, is the current registered owner as of ${new Date().getFullYear()}.`,
+    });
+  }
 
   return { theft, accidents, ownership };
 };
