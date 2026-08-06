@@ -3203,7 +3203,18 @@ const initializeDatabase = async () => {
       `
         INSERT INTO vehicles (vin, make, model, year, status, theft, ownership, accidents, mileage, score, source, photo)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        ON CONFLICT (vin) DO UPDATE SET photo = EXCLUDED.photo
+        ON CONFLICT (vin) DO UPDATE SET
+          make = EXCLUDED.make,
+          model = EXCLUDED.model,
+          year = EXCLUDED.year,
+          status = EXCLUDED.status,
+          theft = EXCLUDED.theft,
+          ownership = EXCLUDED.ownership,
+          accidents = EXCLUDED.accidents,
+          mileage = EXCLUDED.mileage,
+          score = EXCLUDED.score,
+          source = EXCLUDED.source,
+          photo = EXCLUDED.photo
       `,
       [vehicle.vin, vehicle.make, vehicle.model, vehicle.year, vehicle.status, vehicle.theft, vehicle.ownership, vehicle.accidents, vehicle.mileage, vehicle.score, vehicle.source, vehicle.photo || null]
     );
