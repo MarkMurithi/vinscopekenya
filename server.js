@@ -539,7 +539,7 @@ app.post('/api/auth/otp/send', otpLimiter, async (req, res) => {
   }
 
   const response = { success: true, expiresInSeconds: 300 };
-  if (!isSmsConfigured() && process.env.NODE_ENV !== 'production') {
+  if (!isSmsConfigured() && (process.env.NODE_ENV !== 'production' || process.env.OTP_DEMO_MODE === 'true')) {
     response.demoCode = issued.code;
   }
 

@@ -14,6 +14,12 @@ services:
         fromDatabase:
           name: vinscope-postgres
           property: connectionString
+      - key: AFRICASTALKING_API_KEY
+        sync: false
+      - key: AFRICASTALKING_USERNAME
+        sync: false
+      - key: OTP_DEMO_MODE
+        value: "false"
 
 databases:
   - name: vinscope-postgres
