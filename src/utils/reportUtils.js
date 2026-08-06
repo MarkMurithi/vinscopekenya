@@ -62,7 +62,7 @@ const KENYA_PHONE_PREFIXES = ['070', '071', '072', '074', '079', '011', '010'];
 
 // Deterministic (VIN-seeded) pseudo-random generator so the same vehicle always
 // shows the same incident details instead of a new fake history on every render.
-const hashString = (value) => {
+export const hashString = (value) => {
   let hash = 0;
   const str = String(value || '');
   for (let i = 0; i < str.length; i += 1) {
@@ -71,7 +71,7 @@ const hashString = (value) => {
   return hash || 1;
 };
 
-const seededRandom = (seed) => {
+export const seededRandom = (seed) => {
   let value = seed % 2147483647;
   if (value <= 0) value += 2147483646;
   return () => {

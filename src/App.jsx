@@ -14,7 +14,7 @@ import {
 } from './services/authApi';
 import { lookupVehicleByVin, pingVehicleApi } from './services/vehicleApi';
 import { startMpesaPayment, getPaymentStatus } from './services/paymentsApi';
-import { buildComparisonChartData, buildIncidentRecords, buildVehicleHistorySections, filterSavedReports, getScoreTier } from './utils/reportUtils';
+import { buildComparisonChartData, buildIncidentRecords, buildVehicleHistorySections, filterSavedReports, getScoreTier, hashString, seededRandom } from './utils/reportUtils';
 import { generateVerificationCode, maskContact } from './utils/verificationUtils';
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -234,24 +234,90 @@ function HeroCar() {
   );
 }
 
-function MileageCurveGraph({ mileage }) {
+// Builds a steadily-rising 6-point odometer trend, varied per VIN so vehicles don't all look identical.
+const buildBaselineMileageValues = (rand) => {
+  const values = [];
+  let current = 14 + rand() * 8;
+  for (let i = 0; i < 6; i += 1) {
+    values.push(current);
+    current += 11 + rand() * 9;
+  }
+  return values;
+};
+
+// Applies one anomaly pattern on top of the baseline trend to visualize a specific kind of inconsistency.
+const applyMileageAnomaly = (values, subtype, rand) => {
+  const anomalyIndex = 2 + Math.floor(rand() * 2); // flag one of the middle recordings (index 2 or 3)
+  const next = [...values];
+
+  if (subtype === 'rollback') {
+    const drop = 12 + rand() * 16;
+    next[anomalyIndex] = Math.max(next[anomalyIndex - 1] - drop, 6);
+    for (let i = anomalyIndex + 1; i < next.length; i += 1) {
+      next[i] = next[anomalyIndex] + (i - anomalyIndex) * (9 + rand() * 7);
+    }
+  } else if (subtype === 'jump') {
+    const spike = 30 + rand() * 18;
+    next[anomalyIndex] = next[anomalyIndex - 1] + spike;
+    if (anomalyIndex + 1 < next.length) {
+      next[anomalyIndex + 1] = next[anomalyIndex - 1] + (11 + rand() * 9);
+      for (let i = anomalyIndex + 2; i < next.length; i += 1) {
+        next[i] = next[anomalyIndex + 1] + (i - anomalyIndex - 1) * (11 + rand() * 7);
+      }
+    }
+  } else if (subtype === 'flatline') {
+    next[anomalyIndex] = next[anomalyIndex - 1];
+  } else if (subtype === 'gap') {
+    next[anomalyIndex] = next[anomalyIndex - 1] + 34 + rand() * 18;
+    for (let i = anomalyIndex + 1; i < next.length; i += 1) {
+      next[i] = next[anomalyIndex] + (i - anomalyIndex) * (9 + rand() * 7);
+    }
+  }
+
+  return { values: next.map((value) => Math.min(Math.max(value, 4), 99)), anomalyIndex };
+};
+
+const buildLinePath = (pts) =>
+  pts.reduce((acc, point, index) => (index === 0
+    ? `M ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+    : `${acc} L ${point.x.toFixed(1)} ${point.y.toFixed(1)}`), '');
+
+const MILEAGE_ANOMALY_LABELS = {
+  rollback: 'Odometer rollback detected',
+  gap: 'Gap between recordings',
+  jump: 'Unverified mileage jump',
+  flatline: 'Reading unchanged over time',
+};
+
+function MileageCurveGraph({ mileage, vin }) {
   const text = String(mileage || '').toLowerCase();
-  const tone = /mismatch|inconsistent|vary|discrep/i.test(text)
+  const tone = /mismatch|inconsistent|vary|discrep|rollback|gap|jump|spike|surge|frozen|stuck|unchanged|decreas/i.test(text)
     ? 'warn'
     : /consistent|appears/i.test(text)
       ? 'ok'
       : 'neutral';
+
+  const rand = seededRandom(hashString(vin || mileage || 'vinscope'));
+
+  let subtype = null;
+  if (tone === 'warn') {
+    if (/rollback|reversed|decreas|wound back|turned back/i.test(text)) subtype = 'rollback';
+    else if (/gap|missing|unrecorded|skipped/i.test(text)) subtype = 'gap';
+    else if (/jump|spike|surge|sudden/i.test(text)) subtype = 'jump';
+    else if (/frozen|stuck|unchanged|static/i.test(text)) subtype = 'flatline';
+    else subtype = ['rollback', 'gap', 'jump', 'flatline'][Math.floor(rand() * 4)];
+  }
+
   const toneLabel = tone === 'warn'
-    ? 'Irregular pattern detected'
+    ? MILEAGE_ANOMALY_LABELS[subtype]
     : tone === 'ok'
       ? 'Consistent with vehicle age'
       : 'Estimated trend';
 
-  const values = tone === 'warn'
-    ? [26, 41, 54, 61, 49, 43]
-    : tone === 'ok'
-      ? [18, 30, 46, 59, 72, 84]
-      : [22, 35, 47, 53, 60, 66];
+  const baseValues = buildBaselineMileageValues(rand);
+  const { values, anomalyIndex } = tone === 'warn'
+    ? applyMileageAnomaly(baseValues, subtype, rand)
+    : { values: baseValues, anomalyIndex: null };
 
   const maxKm = 160000;
   const width = 460;
@@ -266,13 +332,8 @@ function MileageCurveGraph({ mileage }) {
     km: Math.round((value / 100) * maxKm),
   }));
 
-  const pathData = points.reduce((acc, point, index) => {
-    if (index === 0) {
-      return `M ${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
-    }
-
-    return `${acc} L ${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
-  }, '');
+  const isGap = tone === 'warn' && subtype === 'gap' && anomalyIndex > 0;
+  const pathData = buildLinePath(points);
 
   const stroke = tone === 'warn' ? '#e63946' : tone === 'ok' ? '#16a34a' : '#5b6c97';
   const fillId = `mileage-fill-${tone}`;
@@ -314,17 +375,59 @@ function MileageCurveGraph({ mileage }) {
           d={`${pathData} L ${lastPoint.x.toFixed(1)} ${height - padding.bottom} L ${startPoint.x.toFixed(1)} ${height - padding.bottom} Z`}
           fill={`url(#${fillId})`}
         />
-        <path d={pathData} stroke={stroke} strokeWidth="2.6" fill="none" strokeLinecap="round" />
+
+        {isGap ? (
+          <>
+            <path d={buildLinePath(points.slice(0, anomalyIndex))} stroke={stroke} strokeWidth="2.6" fill="none" strokeLinecap="round" />
+            <path
+              d={buildLinePath([points[anomalyIndex - 1], points[anomalyIndex]])}
+              stroke={stroke}
+              strokeWidth="2.6"
+              fill="none"
+              strokeLinecap="round"
+              strokeDasharray="6 5"
+            />
+            <path d={buildLinePath(points.slice(anomalyIndex))} stroke={stroke} strokeWidth="2.6" fill="none" strokeLinecap="round" />
+          </>
+        ) : (
+          <path d={pathData} stroke={stroke} strokeWidth="2.6" fill="none" strokeLinecap="round" />
+        )}
 
         {points.map((point, index) => (
           <g key={index}>
-            <circle cx={point.x} cy={point.y} r="4.4" fill="#fff" stroke={stroke} strokeWidth="2" />
-            <circle cx={point.x} cy={point.y} r="2" fill={stroke} />
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={index === anomalyIndex && !isGap ? 6 : 4.4}
+              fill="#fff"
+              stroke={index === anomalyIndex && !isGap ? '#e63946' : stroke}
+              strokeWidth="2"
+            />
+            <circle cx={point.x} cy={point.y} r="2" fill={index === anomalyIndex && !isGap ? '#e63946' : stroke} />
             <text x={point.x} y={height - padding.bottom + 16} fontSize="8.5" textAnchor="middle" fill="rgba(20, 33, 61, 0.6)">
               R{index + 1}
             </text>
           </g>
         ))}
+
+        {tone === 'warn' && anomalyIndex !== null && (
+          isGap ? (
+            <text
+              x={(points[anomalyIndex - 1].x + points[anomalyIndex].x) / 2}
+              y={(points[anomalyIndex - 1].y + points[anomalyIndex].y) / 2 - 10}
+              fontSize="8.5"
+              textAnchor="middle"
+              fontWeight="700"
+              fill="#e63946"
+            >
+              Recording gap
+            </text>
+          ) : (
+            <text x={points[anomalyIndex].x} y={points[anomalyIndex].y - 14} fontSize="8.5" textAnchor="middle" fontWeight="700" fill="#e63946">
+              {MILEAGE_ANOMALY_LABELS[subtype]}
+            </text>
+          )
+        )}
 
         <text x={lastPoint.x} y={lastPoint.y - 10} fontSize="9.5" textAnchor="middle" fontWeight="700" fill={stroke}>
           {lastPoint.km.toLocaleString()} km
@@ -418,7 +521,7 @@ const sampleReports = [
     theft: 'Flagged in one source',
     ownership: '2 owners',
     accidents: '2 reported incidents',
-    mileage: 'Mileage mismatch detected',
+    mileage: 'Odometer rollback suspected - readings decreased between service records',
     score: 62,
     source: 'demo',
     historyAvailable: true,
@@ -2160,7 +2263,7 @@ function App() {
                         <strong>Odometer trend</strong>
                         <span>{selectedReport.mileage}</span>
                       </div>
-                      <MileageCurveGraph mileage={selectedReport.mileage} />
+                      <MileageCurveGraph mileage={selectedReport.mileage} vin={selectedReport.vin} />
                     </div>
                   </div>
 
