@@ -1641,6 +1641,74 @@ button {
   gap: 6px;
 }
 
+.contact-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.contact-info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.contact-info-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  color: var(--text);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+a.contact-info-item:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 28px rgba(8, 15, 29, 0.12);
+}
+
+.contact-info-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--gray-100);
+  color: var(--red);
+  flex-shrink: 0;
+}
+
+.contact-info-item strong {
+  display: block;
+  color: var(--navy);
+  font-size: 0.95rem;
+}
+
+.contact-info-item em {
+  display: block;
+  font-style: normal;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.contact-form-wrap .payment-form {
+  max-width: 100%;
+}
+
+.contact-success {
+  padding: 12px 4px;
+}
+
+@media (max-width: 700px) {
+  .contact-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .detail-overview {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -2124,7 +2192,8 @@ button {
 :root[data-theme='dark'] .empty-state strong,
 :root[data-theme='dark'] .enterprise-tag,
 :root[data-theme='dark'] .checkout-summary-amount,
-:root[data-theme='dark'] .legal-section h3 {
+:root[data-theme='dark'] .legal-section h3,
+:root[data-theme='dark'] .contact-info-item strong {
   color: #eef1f6;
 }
 

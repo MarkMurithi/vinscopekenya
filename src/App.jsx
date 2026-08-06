@@ -180,6 +180,24 @@ function IconCard(props) {
   );
 }
 
+function IconMail(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="2.5" y="4.5" width="19" height="15" rx="2.2" />
+      <path d="M3 6.5l9 6.5 9-6.5" />
+    </svg>
+  );
+}
+
+function IconMapPin(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 21s-7-6.4-7-11.5A7 7 0 0 1 19 9.5C19 14.6 12 21 12 21z" />
+      <circle cx="12" cy="9.5" r="2.4" />
+    </svg>
+  );
+}
+
 function CitySkyline() {
   return (
     <svg className="hero-skyline" viewBox="0 0 900 220" preserveAspectRatio="none" aria-hidden="true">
@@ -681,6 +699,9 @@ function App() {
   });
   const [enterpriseErrors, setEnterpriseErrors] = useState({});
   const [enterpriseSubmitted, setEnterpriseSubmitted] = useState(null);
+  const [contactForm, setContactForm] = useState({ name: '', email: '', message: '' });
+  const [contactErrors, setContactErrors] = useState({});
+  const [contactSubmitted, setContactSubmitted] = useState(null);
   const [verificationStep, setVerificationStep] = useState('signup');
   const [verificationMethod, setVerificationMethod] = useState('email');
   const [verificationCode, setVerificationCode] = useState('');
@@ -1041,6 +1062,34 @@ function App() {
     setEnterpriseSubmitted({ ...enterpriseForm });
   };
 
+  const openContactPage = () => {
+    setContactSubmitted(null);
+    setContactErrors({});
+    setContactForm({ name: user?.name || '', email: user?.email || '', message: '' });
+    setView('contact');
+  };
+
+  const updateContactField = (field, value) => {
+    setContactForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleContactSubmit = (event) => {
+    event.preventDefault();
+    const errors = {};
+
+    if (!contactForm.name.trim()) errors.name = 'Please enter your name.';
+    if (!EMAIL_REGEX.test(contactForm.email.trim())) errors.email = 'Enter a valid email address.';
+    if (!contactForm.message.trim()) errors.message = 'Let us know how we can help.';
+
+    if (Object.keys(errors).length > 0) {
+      setContactErrors(errors);
+      return;
+    }
+
+    setContactErrors({});
+    setContactSubmitted({ ...contactForm });
+  };
+
   const openCheckout = (plan) => {
     if (!user) {
       setPaymentMessage('Sign in first to subscribe.');
@@ -1235,7 +1284,7 @@ function App() {
           <button onClick={() => goToSection('features')}>Features</button>
           <button onClick={() => setView('compare')}>Compare</button>
           <button onClick={() => goToSection('faq')}>FAQ</button>
-          <button onClick={() => goToSection('contact')}>Contact</button>
+          <button onClick={openContactPage}>Contact</button>
         </nav>
         <div className="auth-buttons">
           <button
@@ -2221,6 +2270,105 @@ function App() {
             </div>
           </section>
         )}
+
+        {view === 'contact' && (
+          <section className="stack">
+            <div className="panel">
+              <div className="detail-heading">
+                <div>
+                  <p className="eyebrow">We'd love to hear from you</p>
+                  <h2>Contact VinScope Kenya</h2>
+                  <p className="section-subtitle detail-subtitle">
+                    Questions about a report, a subscription, or a dealership partnership? Reach out and our team will
+                    get back to you.
+                  </p>
+                </div>
+                <button className="btn-outline small" onClick={() => setView('home')}>Back to home</button>
+              </div>
+
+              <div className="contact-grid">
+                <div className="contact-info-list">
+                  <a className="contact-info-item" href="tel:+254714027134">
+                    <span className="contact-info-icon"><IconPhone /></span>
+                    <span>
+                      <strong>Call or WhatsApp</strong>
+                      <em>0714 027 134</em>
+                    </span>
+                  </a>
+                  <a className="contact-info-item" href="mailto:vinscopekenya@gmail.com">
+                    <span className="contact-info-icon"><IconMail /></span>
+                    <span>
+                      <strong>Email</strong>
+                      <em>vinscopekenya@gmail.com</em>
+                    </span>
+                  </a>
+                  <div className="contact-info-item">
+                    <span className="contact-info-icon"><IconMapPin /></span>
+                    <span>
+                      <strong>Location</strong>
+                      <em>Nairobi, Kenya</em>
+                    </span>
+                  </div>
+                  <div className="contact-info-item">
+                    <span className="contact-info-icon"><IconClock /></span>
+                    <span>
+                      <strong>Support hours</strong>
+                      <em>Mon – Fri, 8:00 AM – 6:00 PM EAT</em>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="contact-form-wrap">
+                  {contactSubmitted ? (
+                    <div className="contact-success">
+                      <div className="modal-icon">✓</div>
+                      <p className="eyebrow">Message sent</p>
+                      <h3>Thanks, {contactSubmitted.name}!</h3>
+                      <p className="modal-copy">
+                        We've received your message and will reply to <strong>{contactSubmitted.email}</strong> as soon
+                        as possible. For urgent matters, call or WhatsApp us on 0714 027 134.
+                      </p>
+                      <button className="btn-outline small" onClick={() => setContactSubmitted(null)}>Send another message</button>
+                    </div>
+                  ) : (
+                    <form className="payment-form" onSubmit={handleContactSubmit}>
+                      <label>
+                        Your name
+                        <input
+                          value={contactForm.name}
+                          onChange={(event) => updateContactField('name', event.target.value)}
+                          placeholder="Full name"
+                        />
+                        {contactErrors.name && <span className="field-error">{contactErrors.name}</span>}
+                      </label>
+                      <label>
+                        Email address
+                        <input
+                          type="email"
+                          value={contactForm.email}
+                          onChange={(event) => updateContactField('email', event.target.value)}
+                          placeholder="you@example.com"
+                        />
+                        {contactErrors.email && <span className="field-error">{contactErrors.email}</span>}
+                      </label>
+                      <label>
+                        Message
+                        <textarea
+                          rows={4}
+                          value={contactForm.message}
+                          onChange={(event) => updateContactField('message', event.target.value)}
+                          placeholder="How can we help?"
+                        />
+                        {contactErrors.message && <span className="field-error">{contactErrors.message}</span>}
+                      </label>
+                      <button className="btn-red" type="submit">Send message</button>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
         </div>
       </main>
 
@@ -2239,10 +2387,10 @@ function App() {
             <button onClick={() => setView('terms')}>Terms of Service</button>
           </div>
           <div className="footer-social" aria-label="Social links">
-            <a href="#" aria-label="Facebook"><span>f</span></a>
-            <a href="#" aria-label="Twitter"><span>t</span></a>
-            <a href="#" aria-label="Instagram"><span>i</span></a>
-            <a href="#" aria-label="LinkedIn"><span>in</span></a>
+            <a href="https://facebook.com/vinscopekenya" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><span>f</span></a>
+            <a href="https://x.com/vinscopekenya" target="_blank" rel="noopener noreferrer" aria-label="Twitter"><span>t</span></a>
+            <a href="https://instagram.com/vinscopekenya" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><span>i</span></a>
+            <a href="https://linkedin.com/company/vinscopekenya" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"><span>in</span></a>
           </div>
         </div>
         <p className="footer-copy">© {new Date().getFullYear()} VinScope Kenya. A vehicle-history platform for smarter buying in Kenya.Developed by Mark Murithi</p>
