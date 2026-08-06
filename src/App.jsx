@@ -19,10 +19,20 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function IconLogo(props) {
   return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6l7-3z" />
-      <path d="M8.5 13.5l1.8-3.5a1 1 0 0 1 .9-.6h1.6a1 1 0 0 1 .9.6l1.8 3.5" />
-      <path d="M8.5 13.5h7v1.6a.7.7 0 0 1-.7.7h-.4a.7.7 0 0 1-.7-.7v-.4H10.3v.4a.7.7 0 0 1-.7.7h-.4a.7.7 0 0 1-.7-.7v-1.6z" />
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" {...props}>
+      <text
+        x="12"
+        y="16.5"
+        textAnchor="middle"
+        fontSize="11"
+        fontWeight="800"
+        fontFamily="inherit"
+        letterSpacing="-0.5"
+        fill="currentColor"
+        stroke="none"
+      >
+        VK
+      </text>
     </svg>
   );
 }
