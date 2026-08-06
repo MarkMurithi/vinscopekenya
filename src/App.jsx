@@ -14,7 +14,7 @@ import {
 } from './services/authApi';
 import { lookupVehicleByVin, pingVehicleApi } from './services/vehicleApi';
 import { startMpesaPayment, getPaymentStatus } from './services/paymentsApi';
-import { buildComparisonChartData, buildVehicleHistorySections, filterSavedReports, getScoreTier } from './utils/reportUtils';
+import { buildComparisonChartData, buildIncidentRecords, buildVehicleHistorySections, filterSavedReports, getScoreTier } from './utils/reportUtils';
 import { generateVerificationCode, maskContact } from './utils/verificationUtils';
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -675,6 +675,7 @@ function App() {
   const [activeSubscription, setActiveSubscription] = useState(null);
   const [checkoutSuccess, setCheckoutSuccess] = useState(null);
   const [enterpriseModalOpen, setEnterpriseModalOpen] = useState(false);
+  const [activeIncidentType, setActiveIncidentType] = useState(null);
   const [enterpriseForm, setEnterpriseForm] = useState({
     companyName: '',
     contactName: '',
@@ -731,6 +732,7 @@ function App() {
   const comparisonChartData = useMemo(() => buildComparisonChartData(comparisonReports), [comparisonReports]);
   const bestComparisonReport = useMemo(() => [...comparisonChartData].sort((a, b) => b.score - a.score)[0], [comparisonChartData]);
   const detailSections = useMemo(() => buildVehicleHistorySections(detailReport || selectedReport), [detailReport, selectedReport]);
+  const incidentRecords = useMemo(() => buildIncidentRecords(selectedReport || {}), [selectedReport]);
   const filteredSavedReports = useMemo(() => {
     const searched = filterSavedReports(savedReports, savedReportSearch);
 
@@ -1074,6 +1076,14 @@ function App() {
   const openVehicleDetail = (report) => {
     setDetailReport(report);
     setView('history-detail');
+  };
+
+  const openIncidentDetail = (type) => {
+    setActiveIncidentType(type);
+  };
+
+  const closeIncidentDetail = () => {
+    setActiveIncidentType(null);
   };
 
   const addRecentSearch = (report) => {
@@ -1958,26 +1968,47 @@ function App() {
 
                   <h4 className="report-section-title">Risk summary</h4>
                   <div className="risk-grid">
-                    <div className={`risk-card ${theftStatus}`}>
+                    <div
+                      className={`risk-card ${theftStatus}${historyAvailable ? ' clickable' : ''}`}
+                      role={historyAvailable ? 'button' : undefined}
+                      tabIndex={historyAvailable ? 0 : undefined}
+                      onClick={historyAvailable ? () => openIncidentDetail('theft') : undefined}
+                      onKeyDown={historyAvailable ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openIncidentDetail('theft'); } } : undefined}
+                    >
                       <span className="risk-icon">{statusIcon(theftStatus)}</span>
                       <div>
                         <p className="risk-title">Theft record</p>
                         <p className="risk-value">{selectedReport.theft}</p>
                       </div>
+                      {historyAvailable && <span className="risk-expand">Details</span>}
                     </div>
-                    <div className={`risk-card ${accidentStatus}`}>
+                    <div
+                      className={`risk-card ${accidentStatus}${historyAvailable ? ' clickable' : ''}`}
+                      role={historyAvailable ? 'button' : undefined}
+                      tabIndex={historyAvailable ? 0 : undefined}
+                      onClick={historyAvailable ? () => openIncidentDetail('accidents') : undefined}
+                      onKeyDown={historyAvailable ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openIncidentDetail('accidents'); } } : undefined}
+                    >
                       <span className="risk-icon">{statusIcon(accidentStatus)}</span>
                       <div>
                         <p className="risk-title">Accident history</p>
                         <p className="risk-value">{selectedReport.accidents}</p>
                       </div>
+                      {historyAvailable && <span className="risk-expand">Details</span>}
                     </div>
-                    <div className={`risk-card ${ownershipStatus}`}>
+                    <div
+                      className={`risk-card ${ownershipStatus}${historyAvailable ? ' clickable' : ''}`}
+                      role={historyAvailable ? 'button' : undefined}
+                      tabIndex={historyAvailable ? 0 : undefined}
+                      onClick={historyAvailable ? () => openIncidentDetail('ownership') : undefined}
+                      onKeyDown={historyAvailable ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openIncidentDetail('ownership'); } } : undefined}
+                    >
                       <span className="risk-icon">{statusIcon(ownershipStatus)}</span>
                       <div>
                         <p className="risk-title">Ownership history</p>
                         <p className="risk-value">{selectedReport.ownership}</p>
                       </div>
+                      {historyAvailable && <span className="risk-expand">Details</span>}
                     </div>
                     <div className={`risk-card ${mileageStatus}`}>
                       <span className="risk-icon">{statusIcon(mileageStatus)}</span>
@@ -1987,6 +2018,65 @@ function App() {
                       </div>
                     </div>
                   </div>
+
+                  {activeIncidentType && (
+                    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={closeIncidentDetail}>
+                      <div className="modal-card incident-modal-card" onClick={(event) => event.stopPropagation()}>
+                        <div className="modal-header">
+                          <div>
+                            <p className="eyebrow">
+                              {activeIncidentType === 'theft' && 'Theft record'}
+                              {activeIncidentType === 'accidents' && 'Accident history'}
+                              {activeIncidentType === 'ownership' && 'Ownership history'}
+                            </p>
+                            <h3>{selectedReport.make} {selectedReport.model} &mdash; {selectedReport.vin}</h3>
+                          </div>
+                          <button className="btn-outline small" onClick={closeIncidentDetail}>Close</button>
+                        </div>
+
+                        {incidentRecords[activeIncidentType].length === 0 ? (
+                          <p className="modal-copy">No recorded incidents found for this category.</p>
+                        ) : (
+                          <div className="incident-list">
+                            {incidentRecords[activeIncidentType].map((incident) => (
+                              <div key={incident.id} className="incident-entry">
+                                <div className="incident-entry-row">
+                                  <div>
+                                    <strong>Date recorded</strong>
+                                    <span>{incident.dateRecorded}</span>
+                                  </div>
+                                  <div>
+                                    <strong>Location</strong>
+                                    <span>{incident.location}</span>
+                                  </div>
+                                  {incident.severity && (
+                                    <div>
+                                      <strong>Severity</strong>
+                                      <span>{incident.severity}</span>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <strong>Outcome</strong>
+                                    <span>{incident.outcome}</span>
+                                  </div>
+                                  <div>
+                                    <strong>Reported by</strong>
+                                    <span>{incident.reportedBy}</span>
+                                  </div>
+                                </div>
+                                <p className="incident-description">{incident.description}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <p className="report-footnote">
+                          Incident details are compiled from available partner data sources and may not reflect every
+                          record held by government agencies or insurers.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <h4 className="report-section-title">Vehicle specifications</h4>
                   <div className="specs-table-wrap">

@@ -1421,6 +1421,76 @@ button {
   color: var(--navy);
 }
 
+.risk-card.clickable {
+  position: relative;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.risk-card.clickable:hover,
+.risk-card.clickable:focus-visible {
+  box-shadow: 0 8px 20px rgba(8, 15, 29, 0.12);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.risk-expand {
+  margin-left: auto;
+  align-self: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--navy);
+  white-space: nowrap;
+}
+
+.incident-modal-card {
+  width: min(640px, 100%);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.incident-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.incident-entry {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--gray-200);
+  background: var(--gray-50);
+}
+
+.incident-entry-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px 16px;
+}
+
+.incident-entry-row strong {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.incident-entry-row span {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.incident-description {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
 .specs-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--gray-200);
