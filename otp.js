@@ -54,6 +54,13 @@ export async function sendSms(to, message) {
     throw new Error(data?.SMSMessageData?.Message || `Failed to send SMS (${response.status})`);
   }
 
+  // Africa's Talking returns HTTP 200 even when the message wasn't actually
+  // delivered - the real outcome is per-recipient, so check that too.
+  const recipient = data?.SMSMessageData?.Recipients?.[0];
+  if (recipient && recipient.status !== 'Success') {
+    throw new Error(recipient.status || 'SMS was not delivered.');
+  }
+
   return data;
 }
 
