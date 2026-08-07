@@ -1934,6 +1934,18 @@ a.contact-info-item:hover {
   gap: 8px;
 }
 
+.saved-report-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.saved-report-heading h4 {
+  margin: 0;
+}
+
 .saved-report-toolbar {
   display: flex;
   gap: 8px;

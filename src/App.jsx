@@ -1048,6 +1048,7 @@ function App() {
   const [phoneLoginError, setPhoneLoginError] = useState('');
   const [savedReportSearch, setSavedReportSearch] = useState('');
   const [savedReportFilter, setSavedReportFilter] = useState('all');
+  const [deletingAllSavedReports, setDeletingAllSavedReports] = useState(false);
   const [analytics, setAnalytics] = useState(() => {
     if (typeof window === 'undefined') return getDefaultAnalytics();
     try {
@@ -1415,8 +1416,35 @@ function App() {
   };
 
   const removeSavedReport = async (vin) => {
-    await deleteVehicleReport(vin);
-    setSavedReports(await getVehicleReports());
+    try {
+      await deleteVehicleReport(vin);
+      setSavedReports(await getVehicleReports());
+      setMessage('Saved report deleted.');
+    } catch (error) {
+      setMessage(error.message || 'Could not delete this saved report.');
+    }
+  };
+
+  const deleteAllSavedReports = async () => {
+    if (!savedReports.length || deletingAllSavedReports) return;
+
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm(`Delete all ${savedReports.length} saved report${savedReports.length === 1 ? '' : 's'}? This cannot be undone.`)
+      : true;
+
+    if (!confirmed) return;
+
+    setDeletingAllSavedReports(true);
+    try {
+      await Promise.all(savedReports.map((report) => deleteVehicleReport(report.vin)));
+      setSavedReports([]);
+      setMessage('All saved reports were deleted.');
+    } catch (error) {
+      setMessage(error.message || 'Could not delete all saved reports right now.');
+      setSavedReports(await getVehicleReports());
+    } finally {
+      setDeletingAllSavedReports(false);
+    }
   };
 
   const openVehicleDetail = (report) => {
@@ -2764,7 +2792,16 @@ function App() {
                       <option value="risk">Needs caution</option>
                     </select>
                   </div>
-                  <h4>Saved reports</h4>
+                  <div className="saved-report-heading">
+                    <h4>Saved reports</h4>
+                    <button
+                      className="btn-outline small"
+                      onClick={deleteAllSavedReports}
+                      disabled={!savedReports.length || deletingAllSavedReports}
+                    >
+                      {deletingAllSavedReports ? 'Deleting...' : 'Delete all'}
+                    </button>
+                  </div>
                   {loadingSavedReports ? (
                     <div className="skeleton-stack">
                       {Array.from({ length: 3 }).map((_, index) => (
