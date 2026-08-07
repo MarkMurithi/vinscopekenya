@@ -2172,6 +2172,14 @@ a.contact-info-item:hover {
   margin-top: 2px;
 }
 
+.legal-consent-modal {
+  max-width: 640px;
+}
+
+.legal-consent-modal .modal-copy {
+  margin-bottom: 8px;
+}
+
 .admin-audit-panel {
   margin-top: 18px;
   border-top: 1px solid var(--gray-200);

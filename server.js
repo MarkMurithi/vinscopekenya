@@ -399,8 +399,39 @@ function serializeUser(user) {
     isVerified: user.is_verified,
     isAdmin: Boolean(user.is_admin),
     verificationMethod: user.verification_method,
+    consentPolicyVersion: user.consent_policy_version || null,
+    requiresPolicyReconsent: user.requires_policy_reconsent === true,
     sessionIdleTimeoutMinutes: REFRESH_SESSION_IDLE_MINUTES,
   };
+}
+
+async function getLatestUserConsent(userId) {
+  const { rows } = await pool.query(
+    `
+      SELECT policy_version AS "policyVersion", accepted_terms AS "acceptedTerms", accepted_privacy AS "acceptedPrivacy", created_at AS "createdAt"
+      FROM user_legal_consents
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
+async function enforcePolicyReconsent(req, res, next) {
+  const latestConsent = await getLatestUserConsent(req.user.id);
+  if (!latestConsent || latestConsent.policyVersion !== LEGAL_POLICY_VERSION) {
+    return sendApiError(
+      req,
+      res,
+      428,
+      'POLICY_RECONSENT_REQUIRED',
+      'You must accept the updated Terms and Privacy Policy before continuing.',
+      { requiredPolicyVersion: LEGAL_POLICY_VERSION, consentPolicyVersion: latestConsent?.policyVersion || null }
+    );
+  }
+  next();
 }
 
 async function getUserSessions(userId, currentRefreshToken, pagination = {}) {
@@ -627,6 +658,65 @@ async function exportUserDataBundle(userId) {
     sessions: sessionsResult.rows,
     authAudit: auditResult.rows,
     legalConsents: consentResult.rows,
+  };
+}
+
+async function getDeletionRequests(filters = {}) {
+  const whereParts = [];
+  const params = [];
+
+  if (filters.status) {
+    params.push(String(filters.status).trim().toLowerCase());
+    whereParts.push(`lower(status) = $${params.length}`);
+  }
+
+  if (filters.email) {
+    params.push(String(filters.email).trim().toLowerCase());
+    whereParts.push(`lower(email) LIKE '%' || $${params.length} || '%'`);
+  }
+
+  const safeLimit = Math.min(Math.max(Number(filters.limit) || 25, 1), 200);
+  const safeOffset = Math.max(Number(filters.offset) || 0, 0);
+  const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+  const countResult = await pool.query(`SELECT COUNT(*)::int AS total FROM user_data_deletion_requests ${whereClause}`, params);
+  const total = Number(countResult.rows[0]?.total || 0);
+
+  const queryParams = [...params, safeLimit, safeOffset];
+  const { rows } = await pool.query(
+    `
+      SELECT
+        id,
+        user_id AS "userId",
+        email,
+        reason,
+        status,
+        requested_by_user AS "requestedByUser",
+        ip_address AS "ipAddress",
+        user_agent AS "userAgent",
+        created_at AS "createdAt",
+        resolved_at AS "resolvedAt",
+        resolved_by AS "resolvedBy",
+        resolution_note AS "resolutionNote"
+      FROM user_data_deletion_requests
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${queryParams.length - 1}
+      OFFSET $${queryParams.length}
+    `,
+    queryParams
+  );
+
+  return {
+    requests: rows,
+    pagination: {
+      offset: safeOffset,
+      limit: safeLimit,
+      total,
+      hasMore: safeOffset + rows.length < total,
+      nextOffset: safeOffset + rows.length < total ? safeOffset + rows.length : null,
+      previousOffset: safeOffset > 0 ? Math.max(safeOffset - safeLimit, 0) : null,
+    },
   };
 }
 
@@ -5306,6 +5396,34 @@ app.post('/api/auth/register', registerLimiter, asyncHandler(async (req, res) =>
   }
 }));
 
+app.post('/api/auth/reconsent', requireAuth, asyncHandler(async (req, res) => {
+  const { acceptedTerms, acceptedPrivacy } = req.body || {};
+  if (!acceptedTerms || !acceptedPrivacy) {
+    return sendApiError(req, res, 400, 'LEGAL_CONSENT_REQUIRED', 'You must accept the updated Terms and Privacy Policy.');
+  }
+
+  await recordUserConsent({
+    userId: req.user.id,
+    policyVersion: LEGAL_POLICY_VERSION,
+    acceptedTerms: true,
+    acceptedPrivacy: true,
+    source: 'reconsent',
+    req,
+  });
+
+  const { rows } = await pool.query('SELECT id, email, name, phone, is_verified, verification_method, is_admin FROM users WHERE id = $1', [req.user.id]);
+  if (!rows[0]) {
+    return sendApiError(req, res, 404, 'USER_NOT_FOUND', 'User not found');
+  }
+
+  const userPayload = {
+    ...rows[0],
+    consent_policy_version: LEGAL_POLICY_VERSION,
+    requires_policy_reconsent: false,
+  };
+  res.json({ user: serializeUser(userPayload) });
+}));
+
 app.post('/api/auth/login', loginLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body || {};
   const loginIp = req.ip || 'unknown';
@@ -5458,7 +5576,13 @@ app.get('/api/auth/me', requireAuth, asyncHandler(async (req, res) => {
   if (!rows[0]) {
     return sendApiError(req, res, 404, 'USER_NOT_FOUND', 'User not found');
   }
-  res.json({ user: serializeUser(rows[0]) });
+  const latestConsent = await getLatestUserConsent(req.user.id);
+  const userPayload = {
+    ...rows[0],
+    consent_policy_version: latestConsent?.policyVersion || null,
+    requires_policy_reconsent: latestConsent?.policyVersion !== LEGAL_POLICY_VERSION,
+  };
+  res.json({ user: serializeUser(userPayload) });
 }));
 
 app.get('/api/auth/data-export', requireAuth, asyncHandler(async (req, res) => {
@@ -5504,6 +5628,41 @@ app.get('/api/admin/sessions', requireAuth, requireAdmin, asyncHandler(async (re
   res.json(payload);
 }));
 
+app.get('/api/admin/deletion-requests', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const payload = await getDeletionRequests(req.query || {});
+  res.json(payload);
+}));
+
+app.patch('/api/admin/deletion-requests/:id', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const requestId = Number(req.params.id);
+  const action = String(req.body?.action || '').trim().toLowerCase();
+  const resolutionNote = String(req.body?.resolutionNote || '').trim() || null;
+
+  if (!Number.isFinite(requestId)) {
+    return sendApiError(req, res, 400, 'INVALID_DELETION_REQUEST_ID', 'Invalid deletion request id');
+  }
+  if (!['approve', 'reject'].includes(action)) {
+    return sendApiError(req, res, 400, 'INVALID_DELETION_ACTION', 'Action must be approve or reject');
+  }
+
+  const targetStatus = action === 'approve' ? 'approved' : 'rejected';
+  const { rows } = await pool.query(
+    `
+      UPDATE user_data_deletion_requests
+      SET status = $2, resolved_at = now(), resolved_by = $3, resolution_note = COALESCE($4, resolution_note)
+      WHERE id = $1
+      RETURNING id, user_id AS "userId", email, reason, status, requested_by_user AS "requestedByUser", ip_address AS "ipAddress", user_agent AS "userAgent", created_at AS "createdAt", resolved_at AS "resolvedAt", resolved_by AS "resolvedBy", resolution_note AS "resolutionNote"
+    `,
+    [requestId, targetStatus, req.user.id, resolutionNote]
+  );
+
+  if (!rows[0]) {
+    return sendApiError(req, res, 404, 'DELETION_REQUEST_NOT_FOUND', 'Deletion request not found');
+  }
+
+  res.json({ request: rows[0] });
+}));
+
 // ---------------------------------------------------------------------------
 // Saved reports (per authenticated user)
 // ---------------------------------------------------------------------------
@@ -5511,6 +5670,8 @@ app.get('/api/admin/sessions', requireAuth, requireAdmin, asyncHandler(async (re
 const REPORT_COLUMNS = `vin, make, model, year, status, theft, ownership, accidents, mileage, score, photo, saved_at AS "savedAt", selected_for_comparison AS "selectedForComparison"`;
 
 app.get('/api/reports', requireAuth, asyncHandler(async (req, res) => {
+  const reconsent = await enforcePolicyReconsent(req, res, () => null);
+  if (reconsent !== null) return reconsent;
   const { rows } = await pool.query(
     `SELECT ${REPORT_COLUMNS} FROM saved_reports WHERE user_id = $1 ORDER BY saved_at DESC`,
     [req.user.id]
@@ -5519,6 +5680,8 @@ app.get('/api/reports', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/reports', requireAuth, asyncHandler(async (req, res) => {
+  const reconsent = await enforcePolicyReconsent(req, res, () => null);
+  if (reconsent !== null) return reconsent;
   const report = req.body || {};
   if (!report.vin) {
     return sendApiError(req, res, 400, 'VIN_REQUIRED', 'VIN is required');
@@ -5562,6 +5725,8 @@ app.post('/api/reports', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 app.delete('/api/reports/:vin', requireAuth, asyncHandler(async (req, res) => {
+  const reconsent = await enforcePolicyReconsent(req, res, () => null);
+  if (reconsent !== null) return reconsent;
   await pool.query('DELETE FROM saved_reports WHERE user_id = $1 AND vin = $2', [
     req.user.id,
     req.params.vin.toUpperCase(),
@@ -5570,6 +5735,8 @@ app.delete('/api/reports/:vin', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 app.patch('/api/reports/:vin/comparison', requireAuth, asyncHandler(async (req, res) => {
+  const reconsent = await enforcePolicyReconsent(req, res, () => null);
+  if (reconsent !== null) return reconsent;
   const { rows } = await pool.query(
     `UPDATE saved_reports SET selected_for_comparison = $1 WHERE user_id = $2 AND vin = $3 RETURNING ${REPORT_COLUMNS}`,
     [Boolean(req.body?.selected), req.user.id, req.params.vin.toUpperCase()]

@@ -6,6 +6,7 @@ import {
   fetchCurrentUser,
   getAdminAlertDeliveryLogs,
   getAdminAuditLogs,
+  getAdminDeletionRequests,
   getAdminSessions,
   getAuthSessions,
   getAdminSecurityAlerts,
@@ -20,7 +21,9 @@ import {
   deleteVehicleReport,
   setReportComparisonSelection,
   sendPhoneOtp,
+  submitPolicyReconsent,
   loginWithPhoneOtp,
+  resolveAdminDeletionRequest,
   updateAdminSecurityAlert,
   updateAdminSecurityAlertsBulk,
 } from './services/authApi';
@@ -31,6 +34,7 @@ import { generateVerificationCode, maskContact } from './utils/verificationUtils
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ONBOARDING_STORAGE_KEY = 'vinscope-onboarding-dismissed';
+const LEGAL_POLICY_VERSION = '2026-08-06';
 
 function IconCar(props) {
   return (
@@ -1112,6 +1116,15 @@ function App() {
   const [adminSessionsOffset, setAdminSessionsOffset] = useState(0);
   const [adminSessionsPagination, setAdminSessionsPagination] = useState({ offset: 0, limit: 25, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
   const [adminSessionFilters, setAdminSessionFilters] = useState({ userId: '', email: '', status: '', limit: 25 });
+  const [deletionRequests, setDeletionRequests] = useState([]);
+  const [loadingDeletionRequests, setLoadingDeletionRequests] = useState(false);
+  const [deletionRequestError, setDeletionRequestError] = useState('');
+  const [deletionRequestOffset, setDeletionRequestOffset] = useState(0);
+  const [deletionRequestPagination, setDeletionRequestPagination] = useState({ offset: 0, limit: 25, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+  const [deletionRequestFilters, setDeletionRequestFilters] = useState({ email: '', status: 'pending', limit: 25 });
+  const [showReconsentModal, setShowReconsentModal] = useState(false);
+  const [reconsentSubmitting, setReconsentSubmitting] = useState(false);
+  const [reconsentAccepted, setReconsentAccepted] = useState(false);
   const [sessionWarningSecondsRemaining, setSessionWarningSecondsRemaining] = useState(null);
   const lastUserActivityAtRef = useRef(Date.now());
   const [onboardingRearmPending, setOnboardingRearmPending] = useState(false);
@@ -1342,6 +1355,9 @@ function App() {
         }
 
         setUser(currentUser);
+        if (currentUser?.requiresPolicyReconsent) {
+          setShowReconsentModal(true);
+        }
         return getVehicleReports().then((reports) => {
           if (!cancelled) setSavedReports(reports);
         });
@@ -1411,6 +1427,32 @@ function App() {
       cancelled = true;
     };
   }, [view, user?.isAdmin, adminSessionsOffset, adminSessionFilters]);
+
+  useEffect(() => {
+    if (view !== 'admin' || !user?.isAdmin) return undefined;
+
+    let cancelled = false;
+    setLoadingDeletionRequests(true);
+    setDeletionRequestError('');
+
+    getAdminDeletionRequests({ ...deletionRequestFilters, offset: deletionRequestOffset })
+      .then((payload) => {
+        if (cancelled) return;
+        setDeletionRequests(payload.requests || []);
+        setDeletionRequestPagination(payload.pagination || { offset: deletionRequestOffset, limit: deletionRequestFilters.limit, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setDeletionRequestError(error.message || 'Could not load deletion requests right now.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDeletionRequests(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [view, user?.isAdmin, deletionRequestOffset, deletionRequestFilters]);
 
   useEffect(() => {
     if (view !== 'admin' || !user?.isAdmin) return undefined;
@@ -1589,6 +1631,11 @@ function App() {
   const updateAdminSessionFilter = (key, value) => {
     setAdminSessionsOffset(0);
     setAdminSessionFilters((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateDeletionRequestFilter = (key, value) => {
+    setDeletionRequestOffset(0);
+    setDeletionRequestFilters((current) => ({ ...current, [key]: value }));
   };
 
   const toggleCriticalOnlyFilter = () => {
@@ -1862,6 +1909,39 @@ function App() {
       clearLocalAuthState('Your deletion request has been received. You have been signed out.', 'home');
     } catch (error) {
       setMessage(error.message || 'Could not submit your deletion request right now.');
+    }
+  };
+
+  const handlePolicyReconsent = async () => {
+    if (!reconsentAccepted) {
+      setMessage('You must accept the updated Terms and Privacy Policy to continue.');
+      return;
+    }
+
+    setReconsentSubmitting(true);
+    try {
+      const payload = await submitPolicyReconsent(true, true);
+      setUser(payload.user);
+      setShowReconsentModal(false);
+      setReconsentAccepted(false);
+      setMessage('Thanks. Your policy consent has been updated.');
+    } catch (error) {
+      setMessage(error.message || 'Could not submit policy consent right now.');
+    } finally {
+      setReconsentSubmitting(false);
+    }
+  };
+
+  const handleResolveDeletionRequest = async (entry, action) => {
+    const resolutionNote = typeof window !== 'undefined'
+      ? window.prompt(`Optional resolution note for ${action}`, entry.resolutionNote || '')
+      : '';
+
+    try {
+      const payload = await resolveAdminDeletionRequest(entry.id, action, resolutionNote || '');
+      setDeletionRequests((current) => current.map((request) => (request.id === entry.id ? payload.request : request)));
+    } catch (error) {
+      setDeletionRequestError(error.message || 'Could not update the deletion request.');
     }
   };
 
@@ -2333,6 +2413,35 @@ function App() {
       )}
 
       <main className="page">
+        {showReconsentModal && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true">
+            <div className="modal-card legal-consent-modal">
+              <div className="modal-header">
+                <div>
+                  <p className="eyebrow">Legal update</p>
+                  <h3>Policy re-consent required</h3>
+                </div>
+              </div>
+              <p className="modal-copy">
+                Our legal terms have changed (version {LEGAL_POLICY_VERSION}). Please review and accept the latest Privacy Policy and Terms of Service to continue using account features.
+              </p>
+              <label className="legal-consent-row">
+                <input
+                  type="checkbox"
+                  checked={reconsentAccepted}
+                  onChange={(event) => setReconsentAccepted(event.target.checked)}
+                />
+                I have reviewed and accept the updated Terms of Service and Privacy Policy.
+              </label>
+              <div className="modal-actions">
+                <button className="btn-outline" onClick={() => setView('privacy')}>View Privacy Policy</button>
+                <button className="btn-outline" onClick={() => setView('terms')}>View Terms</button>
+                <button className="btn-red" disabled={reconsentSubmitting} onClick={handlePolicyReconsent}>{reconsentSubmitting ? 'Submitting...' : 'Accept and continue'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div key={view} className="view-transition">
         {view === 'home' && (
           <>
@@ -3686,6 +3795,94 @@ function App() {
                       <div className="report-actions">
                         <button className="btn-outline small" disabled={adminSessionsPagination.previousOffset == null} onClick={() => setAdminSessionsOffset(adminSessionsPagination.previousOffset ?? 0)}>Previous</button>
                         <button className="btn-outline small" disabled={!adminSessionsPagination.hasMore || adminSessionsPagination.nextOffset == null} onClick={() => setAdminSessionsOffset(adminSessionsPagination.nextOffset ?? adminSessionsOffset)}>Next</button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="detail-heading">
+                <div>
+                  <p className="eyebrow">Compliance queue</p>
+                  <h2>Data Deletion Requests</h2>
+                  <p className="section-subtitle detail-subtitle">Review and resolve user deletion requests with resolution notes.</p>
+                </div>
+              </div>
+
+              <div className="admin-audit-panel admin-panel-block">
+                <div className="saved-report-heading">
+                  <h4>Deletion request queue</h4>
+                </div>
+                <div className="saved-report-toolbar admin-audit-toolbar">
+                  <input value={deletionRequestFilters.email} onChange={(event) => updateDeletionRequestFilter('email', event.target.value)} placeholder="Filter by email" />
+                  <select value={deletionRequestFilters.status} onChange={(event) => updateDeletionRequestFilter('status', event.target.value)}>
+                    <option value="">All statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                  <select value={deletionRequestFilters.limit} onChange={(event) => updateDeletionRequestFilter('limit', Number(event.target.value))}>
+                    <option value={25}>25 per page</option>
+                    <option value={50}>50 per page</option>
+                    <option value={100}>100 per page</option>
+                  </select>
+                </div>
+
+                {deletionRequestError && <p className="field-error">{deletionRequestError}</p>}
+
+                {loadingDeletionRequests ? (
+                  <div className="skeleton-stack">
+                    {Array.from({ length: 4 }).map((_, index) => <div key={index} className="skeleton-line" />)}
+                  </div>
+                ) : deletionRequests.length === 0 ? (
+                  <div className="empty-state">
+                    <strong>No deletion requests found</strong>
+                    <p>Adjust the filters to inspect resolved or pending requests.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="audit-table-wrap">
+                      <table className="audit-table">
+                        <thead>
+                          <tr>
+                            <th>Requested</th>
+                            <th>User</th>
+                            <th>Reason</th>
+                            <th>Status</th>
+                            <th>Resolution</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {deletionRequests.map((entry) => (
+                            <tr key={entry.id}>
+                              <td>{new Date(entry.createdAt).toLocaleString()}</td>
+                              <td>
+                                <strong>{entry.email || `User ${entry.userId || 'Unknown'}`}</strong>
+                                <span>{entry.ipAddress || 'No IP recorded'}</span>
+                              </td>
+                              <td>{entry.reason || 'No reason provided'}</td>
+                              <td><span className={`audit-status ${entry.status === 'approved' ? 'ok' : entry.status === 'rejected' ? 'warn' : 'neutral'}`}>{entry.status}</span></td>
+                              <td>{entry.resolutionNote || 'Pending review'}</td>
+                              <td>
+                                <div className="audit-actions">
+                                  <button className="btn-outline small" disabled={entry.status !== 'pending'} onClick={() => handleResolveDeletionRequest(entry, 'approve')}>Approve</button>
+                                  <button className="btn-outline small" disabled={entry.status !== 'pending'} onClick={() => handleResolveDeletionRequest(entry, 'reject')}>Reject</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="audit-pagination">
+                      <span>Showing {deletionRequests.length ? deletionRequestPagination.offset + 1 : 0}-{Math.min(deletionRequestPagination.offset + deletionRequests.length, deletionRequestPagination.total)} of {deletionRequestPagination.total}</span>
+                      <div className="report-actions">
+                        <button className="btn-outline small" disabled={deletionRequestPagination.previousOffset == null} onClick={() => setDeletionRequestOffset(deletionRequestPagination.previousOffset ?? 0)}>Previous</button>
+                        <button className="btn-outline small" disabled={!deletionRequestPagination.hasMore || deletionRequestPagination.nextOffset == null} onClick={() => setDeletionRequestOffset(deletionRequestPagination.nextOffset ?? deletionRequestOffset)}>Next</button>
                       </div>
                     </div>
                   </>

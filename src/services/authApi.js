@@ -211,3 +211,29 @@ export async function requestDataDeletion(reason) {
   });
 }
 
+export async function submitPolicyReconsent(acceptedTerms, acceptedPrivacy) {
+  return requestJson('/api/auth/reconsent', {
+    method: 'POST',
+    body: JSON.stringify({ acceptedTerms, acceptedPrivacy }),
+  });
+}
+
+export async function getAdminDeletionRequests(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+
+  const query = params.toString();
+  return requestJson(`/api/admin/deletion-requests${query ? `?${query}` : ''}`);
+}
+
+export async function resolveAdminDeletionRequest(id, action, resolutionNote) {
+  return requestJson(`/api/admin/deletion-requests/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action, resolutionNote }),
+  });
+}
+
