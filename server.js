@@ -3252,6 +3252,75 @@ const VEHICLE_COLUMNS = `
   displacement_l AS "displacementL", history_available AS "historyAvailable", photo
 `;
 
+const parseCountFromText = (value) => {
+  const text = String(value || '');
+  const match = text.match(/(\d+)/);
+  return match ? Number(match[1]) : 0;
+};
+
+const isMileageInconsistent = (value) => {
+  const text = String(value || '').toLowerCase();
+  if (!text) return false;
+  if (/no public odometer record|unavailable|unknown/.test(text)) return true;
+  if (/consistent/.test(text) && !/rollback|decreased|gap|jump|unchanged|varies|suspected|inconsistent/.test(text)) {
+    return false;
+  }
+  return /rollback|decreased|gap|jump|unchanged|varies|suspected|inconsistent|flatline|sharply/.test(text);
+};
+
+function calculateVehicleScore(record = {}) {
+  if (record.historyAvailable === false) {
+    return null;
+  }
+
+  const theftText = String(record.theft || '').toLowerCase();
+  const accidentsText = String(record.accidents || '').toLowerCase();
+  const mileageText = String(record.mileage || '').toLowerCase();
+  const ownershipText = String(record.ownership || '').toLowerCase();
+
+  let theftPenalty = 0;
+  if (theftText && !/no record|no theft|none|clear/.test(theftText)) {
+    const theftCount = Math.max(parseCountFromText(theftText), 1);
+    theftPenalty = 30 + Math.min((theftCount - 1) * 8, 24);
+  }
+
+  let accidentPenalty = 0;
+  if (accidentsText && !/no major accidents|0 reported incidents|no record|none/.test(accidentsText)) {
+    const accidentCount = parseCountFromText(accidentsText);
+    accidentPenalty = Math.min(accidentCount * 7, 28);
+    if (/major|severe|structural/.test(accidentsText)) {
+      accidentPenalty += 6;
+    }
+  }
+
+  let mileagePenalty = 0;
+  if (isMileageInconsistent(mileageText)) {
+    if (/rollback|decreased/.test(mileageText)) {
+      mileagePenalty = 30;
+    } else if (/unchanged|flatline/.test(mileageText)) {
+      mileagePenalty = 22;
+    } else if (/gap|jump|varies|suspected|inconsistent|sharply/.test(mileageText)) {
+      mileagePenalty = 18;
+    } else {
+      mileagePenalty = 10;
+    }
+  }
+
+  const ownerCount = /new import|not yet registered|unregistered/.test(ownershipText)
+    ? 0
+    : parseCountFromText(ownershipText) || (/single|one owner/.test(ownershipText) ? 1 : 0);
+  const previousOwnerCount = Math.max(ownerCount - 1, 0);
+  const ownershipPenalty = Math.min(previousOwnerCount * 4, 20);
+
+  const totalPenalty = theftPenalty + accidentPenalty + mileagePenalty + ownershipPenalty;
+  return Math.max(0, Math.min(100, Math.round(100 - totalPenalty)));
+}
+
+const withDerivedScore = (record = {}) => ({
+  ...record,
+  score: calculateVehicleScore(record),
+});
+
 async function upsertVehicle(vehicle) {
   const {
     vin, make, model, year, status, theft, ownership, accidents, mileage, score, source,
@@ -3259,6 +3328,8 @@ async function upsertVehicle(vehicle) {
     fuelType = null, engineCylinders = null, displacementL = null, historyAvailable = true,
     photo = null,
   } = vehicle;
+
+  const calculatedScore = calculateVehicleScore({ theft, ownership, accidents, mileage, historyAvailable });
 
   const { rows } = await pool.query(
     `
@@ -3290,13 +3361,13 @@ async function upsertVehicle(vehicle) {
       RETURNING ${VEHICLE_COLUMNS}
     `,
     [
-      vin, make, model, year, status, theft, ownership, accidents, mileage, score, source,
+      vin, make, model, year, status, theft, ownership, accidents, mileage, calculatedScore, source,
       manufacturer, plantCountry, bodyClass, vehicleType, fuelType, engineCylinders, displacementL, historyAvailable,
       photo,
     ]
   );
 
-  return rows[0];
+  return withDerivedScore(rows[0]);
 }
 
 app.get('/api/vehicles/:vin', async (req, res) => {
@@ -3312,7 +3383,7 @@ app.get('/api/vehicles/:vin', async (req, res) => {
   const { rows } = await pool.query(`SELECT ${VEHICLE_COLUMNS} FROM vehicles WHERE vin = $1`, [vin]);
 
   if (rows[0]) {
-    return res.json(rows[0]);
+    return res.json(withDerivedScore(rows[0]));
   }
 
   // Not in our database - fall back to the free, public NHTSA vPIC decoder for a real VIN decode.
@@ -3539,7 +3610,7 @@ app.get('/api/reports', requireAuth, async (req, res) => {
     `SELECT ${REPORT_COLUMNS} FROM saved_reports WHERE user_id = $1 ORDER BY saved_at DESC`,
     [req.user.id]
   );
-  res.json(rows);
+  res.json(rows.map((row) => withDerivedScore(row)));
 });
 
 app.post('/api/reports', requireAuth, async (req, res) => {
@@ -3547,6 +3618,14 @@ app.post('/api/reports', requireAuth, async (req, res) => {
   if (!report.vin) {
     return res.status(400).json({ error: 'VIN is required' });
   }
+
+  const calculatedScore = calculateVehicleScore({
+    theft: report.theft,
+    ownership: report.ownership,
+    accidents: report.accidents,
+    mileage: report.mileage,
+    historyAvailable: true,
+  });
 
   const { rows } = await pool.query(
     `
@@ -3569,12 +3648,12 @@ app.post('/api/reports', requireAuth, async (req, res) => {
       report.ownership || null,
       report.accidents || null,
       report.mileage || null,
-      report.score ?? null,
+      calculatedScore,
       report.photo || null,
     ]
   );
 
-  res.status(201).json(rows[0]);
+  res.status(201).json(withDerivedScore(rows[0]));
 });
 
 app.delete('/api/reports/:vin', requireAuth, async (req, res) => {
@@ -3595,7 +3674,7 @@ app.patch('/api/reports/:vin/comparison', requireAuth, async (req, res) => {
     return res.status(404).json({ error: 'Saved report not found' });
   }
 
-  res.json(rows[0]);
+  res.json(withDerivedScore(rows[0]));
 });
 
 // ---------------------------------------------------------------------------

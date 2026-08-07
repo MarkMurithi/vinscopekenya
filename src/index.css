@@ -686,6 +686,34 @@ button {
   background: var(--red);
 }
 
+.mileage-graph-records {
+  margin-top: 8px;
+  border-top: 1px dashed var(--gray-200);
+  padding: 8px 4px 0;
+  display: grid;
+  gap: 4px;
+}
+
+.mileage-graph-records p {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.mileage-graph-records strong {
+  color: var(--navy);
+}
+
+.mileage-record-gap {
+  color: var(--red) !important;
+  font-weight: 600;
+}
+
+.mileage-record-unavailable {
+  color: var(--text-muted) !important;
+  font-style: italic;
+}
+
 .sample-actions {
   display: grid;
   gap: 10px;

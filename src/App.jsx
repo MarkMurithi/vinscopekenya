@@ -295,6 +295,100 @@ const buildLinePath = (pts) =>
     ? `M ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
     : `${acc} L ${point.x.toFixed(1)} ${point.y.toFixed(1)}`), '');
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const LARGE_RECORDING_GAP_DAYS = 365;
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const toIsoDate = (date) => date.toISOString().slice(0, 10);
+
+const parseDateValue = (value) => {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Date(`${value}T00:00:00Z`);
+  }
+  return new Date(value);
+};
+
+const formatDateWithShortMonth = (value, yearStyle = 'full') => {
+  const date = parseDateValue(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const month = SHORT_MONTHS[date.getUTCMonth()];
+  const year = date.getUTCFullYear();
+  const normalizedYear = yearStyle === 'short' ? String(year).slice(-2) : String(year);
+  return `${day} ${month} ${normalizedYear}`;
+};
+
+const formatRecordingDate = (value) => {
+  return formatDateWithShortMonth(value, 'full');
+};
+
+const formatAxisDate = (value) => {
+  const label = formatDateWithShortMonth(value, 'short');
+  return label === 'Unknown' ? 'N/A' : label;
+};
+
+const formatGapLabel = (days) => {
+  const months = Math.round(days / 30);
+  if (months >= 12) {
+    const years = (months / 12).toFixed(1).replace(/\.0$/, '');
+    return `${years}y gap`;
+  }
+  return `${months}mo gap`;
+};
+
+// Build deterministic recording dates so x-position reflects the real spacing between readings.
+const buildRecordedDates = (rand, { count, subtype, isNewImport }) => {
+  const now = new Date();
+
+  if (isNewImport) {
+    const importedDaysAgo = 25 + Math.floor(rand() * 210);
+    const importDate = new Date(now.getTime() - importedDaysAgo * DAY_MS);
+    return {
+      dates: [toIsoDate(importDate)],
+      largeGaps: [],
+    };
+  }
+
+  const intervals = [];
+  const possibleGapCount = Math.max(count - 1, 0);
+  const forcedGapIntervalIndex = subtype === 'gap' && possibleGapCount > 2
+    ? 1 + Math.floor(rand() * (possibleGapCount - 2))
+    : -1;
+
+  for (let intervalIndex = 0; intervalIndex < possibleGapCount; intervalIndex += 1) {
+    let days = 140 + Math.floor(rand() * 170); // ~4.5 to 10 months
+    if (intervalIndex === forcedGapIntervalIndex) {
+      days = 500 + Math.floor(rand() * 210); // forced long interval ~16 to 23 months
+    }
+    intervals.push(days);
+  }
+
+  const totalDays = intervals.reduce((sum, days) => sum + days, 0);
+  const startOffset = 120 + Math.floor(rand() * 120);
+  const start = new Date(now.getTime() - (totalDays + startOffset) * DAY_MS);
+
+  const dates = [toIsoDate(start)];
+  let runningDate = start;
+  const largeGaps = [];
+
+  for (let intervalIndex = 0; intervalIndex < intervals.length; intervalIndex += 1) {
+    const days = intervals[intervalIndex];
+    runningDate = new Date(runningDate.getTime() + days * DAY_MS);
+    dates.push(toIsoDate(runningDate));
+
+    if (days >= LARGE_RECORDING_GAP_DAYS) {
+      largeGaps.push({
+        fromIndex: intervalIndex,
+        toIndex: intervalIndex + 1,
+        days,
+      });
+    }
+  }
+
+  return { dates, largeGaps };
+};
+
 const MILEAGE_ANOMALY_LABELS = {
   rollback: 'Odometer rollback detected',
   gap: 'Gap between recordings',
@@ -303,8 +397,10 @@ const MILEAGE_ANOMALY_LABELS = {
   varies: 'Inconsistent readings across records',
 };
 
-function MileageCurveGraph({ mileage, vin }) {
+function MileageCurveGraph({ mileage, vin, ownership }) {
   const text = String(mileage || '').toLowerCase();
+  const ownershipText = String(ownership || '').toLowerCase();
+  const isNewImport = /new import|not yet registered|unregistered/.test(`${text} ${ownershipText}`);
   const tone = /mismatch|inconsistent|vari|discrep|rollback|gap|jump|spike|surge|frozen|stuck|unchanged|decreas/i.test(text)
     ? 'warn'
     : /consistent|appears/i.test(text)
@@ -322,32 +418,52 @@ function MileageCurveGraph({ mileage, vin }) {
     else subtype = 'varies';
   }
 
-  const toneLabel = tone === 'warn'
+  const toneLabel = isNewImport
+    ? 'Only one mileage reading is available for a new import.'
+    : tone === 'warn'
     ? MILEAGE_ANOMALY_LABELS[subtype]
     : tone === 'ok'
       ? 'Consistent with vehicle age'
       : 'Estimated trend';
 
-  const baseValues = buildBaselineMileageValues(rand);
-  const { values, anomalyIndex } = tone === 'warn'
-    ? (subtype === 'varies' ? { values: buildVariesMileageValues(rand), anomalyIndex: null } : applyMileageAnomaly(baseValues, subtype, rand))
-    : { values: baseValues, anomalyIndex: null };
+  const pointCount = isNewImport ? 1 : 6;
+  const baseValues = buildBaselineMileageValues(rand).slice(0, pointCount);
+  const { values, anomalyIndex } = isNewImport
+    ? { values: baseValues, anomalyIndex: null }
+    : tone === 'warn'
+      ? (subtype === 'varies' ? { values: buildVariesMileageValues(rand), anomalyIndex: null } : applyMileageAnomaly(baseValues, subtype, rand))
+      : { values: baseValues, anomalyIndex: null };
+
+  const { dates, largeGaps } = buildRecordedDates(rand, { count: values.length, subtype, isNewImport });
 
   const maxKm = 160000;
   const width = 460;
-  const height = 210;
-  const padding = { top: 22, right: 24, bottom: 34, left: 46 };
+  const height = 230;
+  const padding = { top: 22, right: 24, bottom: 56, left: 46 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
+  const totalAxisSlots = 6;
+  const slotXs = Array.from({ length: totalAxisSlots }, (_, index) => (
+    padding.left + (index / (totalAxisSlots - 1)) * plotWidth
+  ));
+
+  const parseAsUtcMillis = (dateValue) => Date.parse(`${dateValue}T00:00:00Z`);
+  const timeStamps = dates.map((dateValue) => parseAsUtcMillis(dateValue));
+  const minTimestamp = Math.min(...timeStamps);
+  const maxTimestamp = Math.max(...timeStamps);
+  const timestampRange = Math.max(maxTimestamp - minTimestamp, 1);
 
   const points = values.map((value, index) => ({
-    x: padding.left + (index / (values.length - 1)) * plotWidth,
+    x: isNewImport
+      ? slotXs[0]
+      : padding.left + ((timeStamps[index] - minTimestamp) / timestampRange) * plotWidth,
     y: padding.top + plotHeight - (value / 100) * plotHeight,
     km: Math.round((value / 100) * maxKm),
+    date: dates[index],
   }));
 
   const isGap = tone === 'warn' && subtype === 'gap' && anomalyIndex > 0;
-  const pathData = buildLinePath(points);
+  const pathData = points.length > 1 ? buildLinePath(points) : '';
 
   const stroke = tone === 'warn' ? '#e63946' : tone === 'ok' ? '#16a34a' : '#5b6c97';
   const fillId = `mileage-fill-${tone}`;
@@ -385,26 +501,28 @@ function MileageCurveGraph({ mileage, vin }) {
         <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke="rgba(20, 33, 61, 0.25)" />
         <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="rgba(20, 33, 61, 0.25)" />
 
-        <path
-          d={`${pathData} L ${lastPoint.x.toFixed(1)} ${height - padding.bottom} L ${startPoint.x.toFixed(1)} ${height - padding.bottom} Z`}
-          fill={`url(#${fillId})`}
-        />
+        {points.length > 1 && (
+          <path
+            d={`${pathData} L ${lastPoint.x.toFixed(1)} ${height - padding.bottom} L ${startPoint.x.toFixed(1)} ${height - padding.bottom} Z`}
+            fill={`url(#${fillId})`}
+          />
+        )}
 
         {isGap ? (
           <>
-            <path d={buildLinePath(points.slice(0, anomalyIndex))} stroke={stroke} strokeWidth="2.6" fill="none" strokeLinecap="round" />
+            <path d={buildLinePath(points.slice(0, anomalyIndex))} stroke={stroke} strokeWidth="1.8" fill="none" strokeLinecap="round" />
             <path
               d={buildLinePath([points[anomalyIndex - 1], points[anomalyIndex]])}
               stroke={stroke}
-              strokeWidth="2.6"
+              strokeWidth="1.8"
               fill="none"
               strokeLinecap="round"
               strokeDasharray="6 5"
             />
-            <path d={buildLinePath(points.slice(anomalyIndex))} stroke={stroke} strokeWidth="2.6" fill="none" strokeLinecap="round" />
+            <path d={buildLinePath(points.slice(anomalyIndex))} stroke={stroke} strokeWidth="1.8" fill="none" strokeLinecap="round" />
           </>
         ) : (
-          <path d={pathData} stroke={stroke} strokeWidth="2.6" fill="none" strokeLinecap="round" />
+          points.length > 1 && <path d={pathData} stroke={stroke} strokeWidth="1.8" fill="none" strokeLinecap="round" />
         )}
 
         {points.map((point, index) => (
@@ -412,15 +530,22 @@ function MileageCurveGraph({ mileage, vin }) {
             <circle
               cx={point.x}
               cy={point.y}
-              r={index === anomalyIndex && !isGap ? 6 : 4.4}
+              r={index === anomalyIndex && !isGap ? 4.2 : 3.2}
               fill="#fff"
               stroke={index === anomalyIndex && !isGap ? '#e63946' : stroke}
-              strokeWidth="2"
+              strokeWidth="1.4"
             />
-            <circle cx={point.x} cy={point.y} r="2" fill={index === anomalyIndex && !isGap ? '#e63946' : stroke} />
-            <text x={point.x} y={height - padding.bottom + 16} fontSize="8.5" textAnchor="middle" fill="rgba(20, 33, 61, 0.6)">
-              R{index + 1}
+            <circle cx={point.x} cy={point.y} r="1.2" fill={index === anomalyIndex && !isGap ? '#e63946' : stroke} />
+            <text x={point.x} y={height - padding.bottom + 15} fontSize="7.4" textAnchor="middle" fill="rgba(20, 33, 61, 0.7)">
+              {formatAxisDate(`${point.date}T00:00:00Z`)}
             </text>
+          </g>
+        ))}
+
+        {isNewImport && slotXs.slice(1).map((slotX, index) => (
+          <g key={`na-slot-${index}`}>
+            <circle cx={slotX} cy={height - padding.bottom} r="2.4" fill="rgba(20, 33, 61, 0.08)" stroke="rgba(20, 33, 61, 0.28)" strokeWidth="1" />
+            <text x={slotX} y={height - padding.bottom + 15} fontSize="7.5" textAnchor="middle" fill="rgba(20, 33, 61, 0.45)">N/A</text>
           </g>
         ))}
 
@@ -443,13 +568,47 @@ function MileageCurveGraph({ mileage, vin }) {
           )
         )}
 
+        {!isNewImport && largeGaps.slice(0, 2).map((gap, index) => {
+          const fromPoint = points[gap.fromIndex];
+          const toPoint = points[gap.toIndex];
+          if (!fromPoint || !toPoint) return null;
+          const midX = (fromPoint.x + toPoint.x) / 2;
+          const midY = Math.min(fromPoint.y, toPoint.y) - 18;
+          return (
+            <text key={`gap-${index}`} x={midX} y={midY} fontSize="8" textAnchor="middle" fontWeight="700" fill="#e63946">
+              {formatGapLabel(gap.days)}
+            </text>
+          );
+        })}
+
         <text x={lastPoint.x} y={lastPoint.y - 10} fontSize="9.5" textAnchor="middle" fontWeight="700" fill={stroke}>
           {lastPoint.km.toLocaleString()} km
+        </text>
+
+        <text x={padding.left + plotWidth / 2} y={height - 8} fontSize="9" textAnchor="middle" fontWeight="700" fill="rgba(20, 33, 61, 0.75)">
+          Recorded date
         </text>
       </svg>
       <div className="mileage-graph-footer">
         <span className={`mileage-tone-dot ${tone}`} />
         <span>{toneLabel}</span>
+      </div>
+      <div className="mileage-graph-records">
+        {points.map((point, index) => (
+          <p key={`reading-${index}`}>
+            <strong>Reading {index + 1}:</strong> {formatRecordingDate(point.date)} - {point.km.toLocaleString()} km
+          </p>
+        ))}
+        {isNewImport && Array.from({ length: totalAxisSlots - 1 }).map((_, index) => (
+          <p key={`reading-unavailable-${index}`} className="mileage-record-unavailable">
+            <strong>Reading {index + 2}:</strong> Not available (new import)
+          </p>
+        ))}
+        {!isNewImport && largeGaps.map((gap, index) => (
+          <p key={`gap-note-${index}`} className="mileage-record-gap">
+            Large interval noted between reading {gap.fromIndex + 1} and {gap.toIndex + 1}: {formatGapLabel(gap.days)}.
+          </p>
+        ))}
       </div>
     </div>
   );
@@ -2277,7 +2436,7 @@ function App() {
                         <strong>Odometer trend</strong>
                         <span>{selectedReport.mileage}</span>
                       </div>
-                      <MileageCurveGraph mileage={selectedReport.mileage} vin={selectedReport.vin} />
+                      <MileageCurveGraph mileage={selectedReport.mileage} vin={selectedReport.vin} ownership={selectedReport.ownership} />
                     </div>
                   </div>
 
