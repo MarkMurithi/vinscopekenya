@@ -1113,6 +1113,15 @@ function App() {
     setView('account');
   };
 
+  const openSavedReports = () => {
+    if (!user) {
+      openAuth('login');
+      setMessage('Sign in to access your saved reports.');
+      return;
+    }
+    setView('account');
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1795,6 +1804,11 @@ function App() {
                     />
                     <button type="submit" className="btn-red">Check Now</button>
                   </form>
+                  <div className="hero-quick-actions">
+                    <button type="button" className="btn-outline-white" onClick={openSavedReports}>
+                      {user ? 'Open Saved Reports' : 'Saved Reports'}
+                    </button>
+                  </div>
                   <p className="status">{message}</p>
                   <p className="status subtle">{loadingVehicle ? 'Loading vehicle details...' : apiStatus}</p>
                 </div>

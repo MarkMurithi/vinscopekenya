@@ -291,6 +291,17 @@ button {
   border-radius: 0 8px 8px 0;
 }
 
+.hero-quick-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.hero-quick-actions .btn-outline-white {
+  min-width: 180px;
+}
+
 .hero-car {
   width: 100%;
   max-width: 340px;
