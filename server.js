@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import pkg from 'pg';
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import helmet from 'helmet';
@@ -9,13 +10,19 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { isValidVinFormat, decodeVinWithNhtsa, mapNhtsaResultToVehicle } from './vinDecoder.js';
 import {
+  AUTH_COOKIE_POLICY,
   EMAIL_REGEX,
   hashPassword,
   verifyPassword,
-  signToken,
-  setAuthCookie,
-  clearAuthCookie,
+  signAccessToken,
+  setAuthCookies,
+  clearAuthCookies,
   requireAuth,
+  setSessionVersionResolver,
+  createRefreshToken,
+  hashRefreshToken,
+  getRefreshTokenExpiryDate,
+  REFRESH_COOKIE_NAME,
 } from './auth.js';
 import {
   getMpesaConfigStatus,
@@ -39,6 +46,12 @@ const allowedOrigin = process.env.ALLOWED_ORIGIN || (process.env.NODE_ENV === 'p
 const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: allowedOrigin === false ? true : allowedOrigin, credentials: true }));
+app.use((req, res, next) => {
+  const requestId = crypto.randomUUID();
+  req.requestId = requestId;
+  res.setHeader('x-request-id', requestId);
+  next();
+});
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(distDir));
@@ -68,19 +81,978 @@ const otpLimiter = rateLimit({
 });
 app.use('/api', apiLimiter);
 
-const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/vinscope';
+const LOGIN_MAX_ATTEMPTS = Number(process.env.LOGIN_MAX_ATTEMPTS || 5);
+const LOGIN_LOCKOUT_MINUTES = Number(process.env.LOGIN_LOCKOUT_MINUTES || 15);
+const LOGIN_IP_MAX_FAILURES = Math.max(1, Number(process.env.LOGIN_IP_MAX_FAILURES || 5));
+const LOGIN_IP_WINDOW_MINUTES = Math.max(1, Number(process.env.LOGIN_IP_WINDOW_MINUTES || 15));
+const LOGIN_IP_LOCKOUT_MINUTES = Math.max(1, Number(process.env.LOGIN_IP_LOCKOUT_MINUTES || 15));
+const OTP_SEND_MAX_PER_PHONE = Math.max(1, Number(process.env.OTP_SEND_MAX_PER_PHONE || 5));
+const OTP_SEND_MAX_PER_IP = Math.max(1, Number(process.env.OTP_SEND_MAX_PER_IP || 20));
+const OTP_SEND_WINDOW_MINUTES = Math.max(1, Number(process.env.OTP_SEND_WINDOW_MINUTES || 15));
+const OTP_SEND_LOCKOUT_MINUTES = Math.max(1, Number(process.env.OTP_SEND_LOCKOUT_MINUTES || 30));
+const OTP_VERIFY_MAX_FAILURES_PER_PHONE = Math.max(1, Number(process.env.OTP_VERIFY_MAX_FAILURES_PER_PHONE || 5));
+const OTP_VERIFY_MAX_FAILURES_PER_IP = Math.max(1, Number(process.env.OTP_VERIFY_MAX_FAILURES_PER_IP || 10));
+const OTP_VERIFY_WINDOW_MINUTES = Math.max(1, Number(process.env.OTP_VERIFY_WINDOW_MINUTES || 15));
+const OTP_VERIFY_LOCKOUT_MINUTES = Math.max(1, Number(process.env.OTP_VERIFY_LOCKOUT_MINUTES || 30));
+const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map((entry) => entry.trim().toLowerCase())
+  .filter(Boolean);
+const AUTH_ALERT_WINDOW_MINUTES = Math.max(1, Number(process.env.AUTH_ALERT_WINDOW_MINUTES || 60));
+const LOCKOUT_ALERT_THRESHOLD = Math.max(1, Number(process.env.LOCKOUT_ALERT_THRESHOLD || 3));
+const REFRESH_REUSE_ALERT_THRESHOLD = Math.max(1, Number(process.env.REFRESH_REUSE_ALERT_THRESHOLD || 1));
+const AUTH_ALERT_WEBHOOK_URL = String(process.env.AUTH_ALERT_WEBHOOK_URL || '').trim();
+const AUTH_ALERT_SLACK_WEBHOOK_URL = String(process.env.AUTH_ALERT_SLACK_WEBHOOK_URL || '').trim();
+const AUTH_ALERT_EMAIL_FROM = String(process.env.AUTH_ALERT_EMAIL_FROM || '').trim();
+const AUTH_ALERT_EMAIL_TO = String(process.env.AUTH_ALERT_EMAIL_TO || '')
+  .split(',')
+  .map((entry) => entry.trim())
+  .filter(Boolean);
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '').trim();
+const REFRESH_SESSION_IDLE_MINUTES = Math.max(1, Number(process.env.REFRESH_SESSION_IDLE_MINUTES || 10080));
+const AUTH_ALERT_DELIVERY_MAX_ATTEMPTS = Math.max(1, Number(process.env.AUTH_ALERT_DELIVERY_MAX_ATTEMPTS || 3));
+const AUTH_ALERT_DELIVERY_BASE_DELAY_MS = Math.max(50, Number(process.env.AUTH_ALERT_DELIVERY_BASE_DELAY_MS || 250));
+const LEGAL_POLICY_VERSION = String(process.env.LEGAL_POLICY_VERSION || '2026-08-06').trim();
+
+const LOCAL_DB_DEFAULT_URL = 'postgres://postgres:postgres@localhost:5432/vinscope';
+const LOCAL_DB_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', 'postgres', 'host.docker.internal']);
+
+const isTrue = (value) => String(value || '').trim().toLowerCase() === 'true';
+
+const parseDbUrl = (value) => {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+};
+
+const isLocalDatabaseUrl = (value) => {
+  const parsed = parseDbUrl(value);
+  return Boolean(parsed && LOCAL_DB_HOSTNAMES.has((parsed.hostname || '').toLowerCase()));
+};
+
+function resolveDatabaseConnectionString() {
+  const env = process.env.NODE_ENV || 'development';
+  const databaseUrl = String(process.env.DATABASE_URL || '').trim();
+  const localDatabaseUrl = String(process.env.LOCAL_DATABASE_URL || '').trim();
+  const testDatabaseUrl = String(process.env.TEST_DATABASE_URL || '').trim();
+
+  if (env === 'production') {
+    if (!databaseUrl) {
+      throw new Error('DATABASE_URL is required in production.');
+    }
+    return databaseUrl;
+  }
+
+  if (env === 'test') {
+    const candidate = testDatabaseUrl || localDatabaseUrl || databaseUrl || LOCAL_DB_DEFAULT_URL;
+    if (!isLocalDatabaseUrl(candidate) && !isTrue(process.env.ALLOW_EXTERNAL_DATABASE_IN_TEST)) {
+      throw new Error(
+        'Refusing to run tests against a non-local database. Set TEST_DATABASE_URL to a local Postgres URL, or set ALLOW_EXTERNAL_DATABASE_IN_TEST=true to override.'
+      );
+    }
+    return candidate;
+  }
+
+  const candidate = localDatabaseUrl || databaseUrl || LOCAL_DB_DEFAULT_URL;
+  if (!isLocalDatabaseUrl(candidate) && !isTrue(process.env.ALLOW_EXTERNAL_DATABASE_IN_DEV)) {
+    throw new Error(
+      'Refusing to start development with a non-local database. Set LOCAL_DATABASE_URL to a local Postgres URL, or set ALLOW_EXTERNAL_DATABASE_IN_DEV=true to override.'
+    );
+  }
+
+  return candidate;
+}
+
+const connectionString = resolveDatabaseConnectionString();
 const pool = new Pool({
   connectionString,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
+async function persistErrorEvent(event = {}) {
+  try {
+    await pool.query(
+      `
+        INSERT INTO app_error_events (
+          source,
+          category,
+          severity,
+          message,
+          code,
+          request_id,
+          path,
+          method,
+          user_id,
+          ip_address,
+          user_agent,
+          stack,
+          details
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
+      `,
+      [
+        event.source || 'server',
+        event.category || 'runtime',
+        event.severity || 'error',
+        event.message || 'Unknown error',
+        event.code || null,
+        event.requestId || null,
+        event.path || null,
+        event.method || null,
+        event.userId || null,
+        event.ipAddress || null,
+        event.userAgent || null,
+        event.stack || null,
+        event.details ? JSON.stringify(event.details) : null,
+      ]
+    );
+  } catch (persistError) {
+    console.error('[error-sink] Failed to persist error event', persistError);
+  }
+}
+
+function sendApiError(req, res, status, code, message, details) {
+  const payload = {
+    error: {
+      code,
+      message,
+      requestId: req.requestId || null,
+    },
+  };
+
+  if (details && Object.keys(details).length) {
+    payload.error.details = details;
+  }
+
+  return res.status(status).json(payload);
+}
+
+const asyncHandler = (handler) => (req, res, next) =>
+  Promise.resolve(handler(req, res, next)).catch(next);
+
+const isFutureDate = (value) => {
+  if (!value) return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime()) && date.getTime() > Date.now();
+};
+
+async function getAbuseBucket(scope, key) {
+  const { rows } = await pool.query(
+    'SELECT attempt_count, first_attempt_at, last_attempt_at, locked_until FROM auth_abuse_buckets WHERE scope = $1 AND bucket_key = $2',
+    [scope, key]
+  );
+  return rows[0] || null;
+}
+
+async function clearAbuseBucket(scope, key) {
+  await pool.query('DELETE FROM auth_abuse_buckets WHERE scope = $1 AND bucket_key = $2', [scope, key]);
+}
+
+async function registerAbuseAttempt(scope, key, { threshold, windowMinutes, lockoutMinutes }) {
+  const existing = await getAbuseBucket(scope, key);
+  const now = new Date();
+
+  if (existing && isFutureDate(existing.locked_until)) {
+    return { blocked: true, lockedUntil: existing.locked_until, attemptCount: Number(existing.attempt_count || 0) };
+  }
+
+  const firstAttemptAt = existing?.first_attempt_at ? new Date(existing.first_attempt_at) : null;
+  const resetWindow = !firstAttemptAt || Number.isNaN(firstAttemptAt.getTime()) || (now.getTime() - firstAttemptAt.getTime()) > windowMinutes * 60 * 1000;
+  const nextAttemptCount = resetWindow ? 1 : Number(existing?.attempt_count || 0) + 1;
+  const nextFirstAttemptAt = resetWindow ? now : firstAttemptAt;
+  const shouldLock = nextAttemptCount > threshold;
+  const lockedUntil = shouldLock ? new Date(now.getTime() + lockoutMinutes * 60 * 1000) : null;
+
+  await pool.query(
+    `
+      INSERT INTO auth_abuse_buckets (scope, bucket_key, attempt_count, first_attempt_at, last_attempt_at, locked_until)
+      VALUES ($1,$2,$3,$4,$5,$6)
+      ON CONFLICT (scope, bucket_key) DO UPDATE SET
+        attempt_count = EXCLUDED.attempt_count,
+        first_attempt_at = EXCLUDED.first_attempt_at,
+        last_attempt_at = EXCLUDED.last_attempt_at,
+        locked_until = EXCLUDED.locked_until
+    `,
+    [scope, key, nextAttemptCount, nextFirstAttemptAt, now, lockedUntil]
+  );
+
+  return { blocked: shouldLock, lockedUntil, attemptCount: nextAttemptCount };
+}
+
+async function ensureAbuseNotLocked(req, res, scope, key, code, message) {
+  const state = await getAbuseBucket(scope, key);
+  if (state && isFutureDate(state.locked_until)) {
+    return sendApiError(req, res, 429, code, message, { lockedUntil: state.locked_until });
+  }
+  return null;
+}
+
+async function recordFailedLoginAttempt(userId) {
+  const lockThreshold = Math.max(1, LOGIN_MAX_ATTEMPTS);
+  const lockMinutes = Math.max(1, LOGIN_LOCKOUT_MINUTES);
+  const { rows } = await pool.query(
+    `
+      UPDATE users
+      SET
+        failed_login_attempts = COALESCE(failed_login_attempts, 0) + 1,
+        locked_until = CASE
+          WHEN COALESCE(failed_login_attempts, 0) + 1 >= $2 THEN now() + ($3 * INTERVAL '1 minute')
+          ELSE locked_until
+        END
+      WHERE id = $1
+      RETURNING failed_login_attempts, locked_until
+    `,
+    [userId, lockThreshold, lockMinutes]
+  );
+
+  return rows[0] || null;
+}
+
+async function clearFailedLoginState(userId) {
+  await pool.query(
+    `
+      UPDATE users
+      SET failed_login_attempts = 0, locked_until = NULL, last_login_at = now()
+      WHERE id = $1
+    `,
+    [userId]
+  );
+}
+
+async function getCurrentSessionVersion(userId) {
+  const { rows } = await pool.query('SELECT session_version FROM users WHERE id = $1', [userId]);
+  if (!rows[0]) return null;
+  return Number(rows[0].session_version || 0);
+}
+
+async function isUserAdmin(userId) {
+  const { rows } = await pool.query('SELECT is_admin FROM users WHERE id = $1', [userId]);
+  if (!rows[0]) return false;
+  return Boolean(rows[0].is_admin);
+}
+
+async function revokeUserSessions(userId) {
+  const { rows } = await pool.query(
+    'UPDATE users SET session_version = COALESCE(session_version, 0) + 1 WHERE id = $1 RETURNING session_version',
+    [userId]
+  );
+  return rows[0] ? Number(rows[0].session_version) : null;
+}
+
+async function revokeAllRefreshSessionsForUser(userId) {
+  await pool.query('UPDATE refresh_sessions SET revoked_at = COALESCE(revoked_at, now()) WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
+}
+
+async function revokeRefreshSessionByToken(refreshToken, reason = 'manual_logout') {
+  if (!refreshToken) return null;
+  const tokenHash = hashRefreshToken(refreshToken);
+  const { rows } = await pool.query(
+    `
+      UPDATE refresh_sessions
+      SET revoked_at = COALESCE(revoked_at, now()), revoked_reason = COALESCE(revoked_reason, $2)
+      WHERE token_hash = $1
+      RETURNING id, user_id AS "userId"
+    `,
+    [tokenHash, reason]
+  );
+  return rows[0] || null;
+}
+
+function buildSessionMetadata(req) {
+  return {
+    userAgent: req.get('user-agent') || null,
+    ipAddress: req.ip || null,
+  };
+}
+
+async function createRefreshSession(userId, sessionVersion, metadata = {}) {
+  const refreshToken = createRefreshToken();
+  const tokenHash = hashRefreshToken(refreshToken);
+  const expiresAt = getRefreshTokenExpiryDate();
+
+  await pool.query(
+    `
+      INSERT INTO refresh_sessions (user_id, token_hash, session_version, expires_at, user_agent, ip_address)
+      VALUES ($1, $2, $3, $4, $5, $6)
+    `,
+    [userId, tokenHash, sessionVersion, expiresAt, metadata.userAgent || null, metadata.ipAddress || null]
+  );
+
+  return { refreshToken, tokenHash, expiresAt };
+}
+
+async function issueAuthSession(req, res, user) {
+  const sessionVersion = Number(user.session_version || 0);
+  const accessToken = signAccessToken({ id: user.id, email: user.email, sessionVersion });
+  const { refreshToken } = await createRefreshSession(user.id, sessionVersion, buildSessionMetadata(req));
+  setAuthCookies(res, accessToken, refreshToken);
+}
+
+function serializeUser(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    phone: user.phone,
+    isVerified: user.is_verified,
+    isAdmin: Boolean(user.is_admin),
+    verificationMethod: user.verification_method,
+    sessionIdleTimeoutMinutes: REFRESH_SESSION_IDLE_MINUTES,
+  };
+}
+
+async function getUserSessions(userId, currentRefreshToken, pagination = {}) {
+  const currentTokenHash = currentRefreshToken ? hashRefreshToken(currentRefreshToken) : null;
+  const safeLimit = Math.min(Math.max(Number(pagination.limit) || 25, 1), 100);
+  const safeOffset = Math.max(Number(pagination.offset) || 0, 0);
+
+  const countResult = await pool.query('SELECT COUNT(*)::int AS total FROM refresh_sessions WHERE user_id = $1', [userId]);
+  const total = Number(countResult.rows[0]?.total || 0);
+
+  const { rows } = await pool.query(
+    `
+      SELECT
+        id,
+        created_at AS "createdAt",
+        last_used_at AS "lastUsedAt",
+        expires_at AS "expiresAt",
+        revoked_at AS "revokedAt",
+        revoked_reason AS "revokedReason",
+        user_agent AS "userAgent",
+        ip_address AS "ipAddress",
+        token_hash = $2 AS "isCurrent"
+      FROM refresh_sessions
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+      LIMIT $3
+      OFFSET $4
+    `,
+    [userId, currentTokenHash, safeLimit, safeOffset]
+  );
+
+  return {
+    sessions: rows.map((row) => ({
+      ...row,
+      status: row.revokedAt ? 'revoked' : new Date(row.expiresAt).getTime() <= Date.now() ? 'expired' : 'active',
+    })),
+    pagination: {
+      offset: safeOffset,
+      limit: safeLimit,
+      total,
+      hasMore: safeOffset + rows.length < total,
+      nextOffset: safeOffset + rows.length < total ? safeOffset + rows.length : null,
+      previousOffset: safeOffset > 0 ? Math.max(safeOffset - safeLimit, 0) : null,
+    },
+  };
+}
+
+async function getAdminSessions(filters = {}) {
+  const whereParts = [];
+  const params = [];
+
+  if (filters.userId) {
+    params.push(Number(filters.userId));
+    whereParts.push(`rs.user_id = $${params.length}`);
+  }
+
+  if (filters.email) {
+    params.push(String(filters.email).trim().toLowerCase());
+    whereParts.push(`lower(u.email) = $${params.length}`);
+  }
+
+  if (filters.status) {
+    params.push(String(filters.status).trim().toLowerCase());
+    if (filters.status === 'active') {
+      whereParts.push(`rs.revoked_at IS NULL AND rs.expires_at > now()`);
+    } else if (filters.status === 'expired') {
+      whereParts.push(`rs.revoked_at IS NULL AND rs.expires_at <= now()`);
+    } else if (filters.status === 'revoked') {
+      whereParts.push(`rs.revoked_at IS NOT NULL`);
+    }
+  }
+
+  const safeLimit = Math.min(Math.max(Number(filters.limit) || 50, 1), 200);
+  const safeOffset = Math.max(Number(filters.offset) || 0, 0);
+  const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM refresh_sessions rs JOIN users u ON u.id = rs.user_id ${whereClause}`,
+    params
+  );
+  const total = Number(countResult.rows[0]?.total || 0);
+
+  const queryParams = [...params, safeLimit, safeOffset];
+  const { rows } = await pool.query(
+    `
+      SELECT
+        rs.id,
+        rs.user_id AS "userId",
+        u.email,
+        u.name,
+        rs.created_at AS "createdAt",
+        rs.last_used_at AS "lastUsedAt",
+        rs.expires_at AS "expiresAt",
+        rs.revoked_at AS "revokedAt",
+        rs.revoked_reason AS "revokedReason",
+        rs.user_agent AS "userAgent",
+        rs.ip_address AS "ipAddress"
+      FROM refresh_sessions rs
+      JOIN users u ON u.id = rs.user_id
+      ${whereClause}
+      ORDER BY rs.created_at DESC
+      LIMIT $${queryParams.length - 1}
+      OFFSET $${queryParams.length}
+    `,
+    queryParams
+  );
+
+  return {
+    sessions: rows.map((row) => ({
+      ...row,
+      status: row.revokedAt ? 'revoked' : new Date(row.expiresAt).getTime() <= Date.now() ? 'expired' : 'active',
+    })),
+    pagination: {
+      offset: safeOffset,
+      limit: safeLimit,
+      total,
+      hasMore: safeOffset + rows.length < total,
+      nextOffset: safeOffset + rows.length < total ? safeOffset + rows.length : null,
+      previousOffset: safeOffset > 0 ? Math.max(safeOffset - safeLimit, 0) : null,
+    },
+  };
+}
+
+async function recordUserConsent({ userId, policyVersion, acceptedTerms, acceptedPrivacy, source, req }) {
+  await pool.query(
+    `
+      INSERT INTO user_legal_consents (
+        user_id,
+        policy_version,
+        accepted_terms,
+        accepted_privacy,
+        source,
+        ip_address,
+        user_agent
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+    `,
+    [
+      userId,
+      policyVersion,
+      acceptedTerms,
+      acceptedPrivacy,
+      source,
+      req?.ip || null,
+      req?.get('user-agent') || null,
+    ]
+  );
+}
+
+async function queueDeletionRequest({ userId, email, reason, req }) {
+  const { rows } = await pool.query(
+    `
+      INSERT INTO user_data_deletion_requests (
+        user_id,
+        email,
+        reason,
+        status,
+        requested_by_user,
+        ip_address,
+        user_agent
+      )
+      VALUES ($1,$2,$3,'pending',true,$4,$5)
+      RETURNING id, status, created_at AS "createdAt"
+    `,
+    [userId, email, reason || null, req?.ip || null, req?.get('user-agent') || null]
+  );
+  return rows[0] || null;
+}
+
+async function exportUserDataBundle(userId) {
+  const userResult = await pool.query(
+    `
+      SELECT id, email, name, phone, is_verified AS "isVerified", verification_method AS "verificationMethod", is_admin AS "isAdmin", created_at AS "createdAt", last_login_at AS "lastLoginAt"
+      FROM users
+      WHERE id = $1
+    `,
+    [userId]
+  );
+
+  const savedReportsResult = await pool.query(
+    `
+      SELECT vin, make, model, year, status, theft, ownership, accidents, mileage, score, photo, saved_at AS "savedAt", selected_for_comparison AS "selectedForComparison"
+      FROM saved_reports
+      WHERE user_id = $1
+      ORDER BY saved_at DESC
+    `,
+    [userId]
+  );
+
+  const sessionsResult = await pool.query(
+    `
+      SELECT id, created_at AS "createdAt", last_used_at AS "lastUsedAt", expires_at AS "expiresAt", revoked_at AS "revokedAt", revoked_reason AS "revokedReason", user_agent AS "userAgent", ip_address AS "ipAddress"
+      FROM refresh_sessions
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+    `,
+    [userId]
+  );
+
+  const auditResult = await pool.query(
+    `
+      SELECT event_type AS "eventType", success, failure_code AS "failureCode", request_id AS "requestId", ip_address AS "ipAddress", user_agent AS "userAgent", details, created_at AS "createdAt"
+      FROM auth_audit_logs
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+    `,
+    [userId]
+  );
+
+  const consentResult = await pool.query(
+    `
+      SELECT policy_version AS "policyVersion", accepted_terms AS "acceptedTerms", accepted_privacy AS "acceptedPrivacy", source, ip_address AS "ipAddress", user_agent AS "userAgent", created_at AS "createdAt"
+      FROM user_legal_consents
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+    `,
+    [userId]
+  );
+
+  return {
+    exportedAt: new Date().toISOString(),
+    user: userResult.rows[0] || null,
+    savedReports: savedReportsResult.rows,
+    sessions: sessionsResult.rows,
+    authAudit: auditResult.rows,
+    legalConsents: consentResult.rows,
+  };
+}
+
+const waitFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function getAuthAlertConfig(eventType) {
+  if (eventType === 'AUTH_ACCOUNT_LOCKED') {
+    return {
+      alertType: 'LOCKOUT_THRESHOLD_EXCEEDED',
+      severity: 'warning',
+      threshold: LOCKOUT_ALERT_THRESHOLD,
+      windowMinutes: AUTH_ALERT_WINDOW_MINUTES,
+    };
+  }
+
+  if (eventType === 'AUTH_REFRESH_REUSED') {
+    return {
+      alertType: 'REFRESH_TOKEN_REUSE_DETECTED',
+      severity: 'critical',
+      threshold: REFRESH_REUSE_ALERT_THRESHOLD,
+      windowMinutes: AUTH_ALERT_WINDOW_MINUTES,
+    };
+  }
+
+  return null;
+}
+
+function buildAuthAlertSubject({ userId, email, phone, ipAddress }) {
+  if (userId) return { subjectKey: `user:${userId}`, subjectLabel: `user:${userId}` };
+  if (email) return { subjectKey: `email:${String(email).toLowerCase()}`, subjectLabel: String(email).toLowerCase() };
+  if (phone) return { subjectKey: `phone:${phone}`, subjectLabel: phone };
+  if (ipAddress) return { subjectKey: `ip:${ipAddress}`, subjectLabel: ipAddress };
+  return { subjectKey: 'unknown', subjectLabel: 'unknown' };
+}
+
+async function logAlertDeliveryAttempt({
+  alertId,
+  channel,
+  destination,
+  attemptNumber,
+  success,
+  responseStatus = null,
+  errorMessage = null,
+}) {
+  await pool.query(
+    `
+      INSERT INTO auth_alert_delivery_logs (
+        alert_id,
+        channel,
+        destination,
+        attempt_number,
+        success,
+        response_status,
+        error_message
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+    `,
+    [alertId, channel, destination, attemptNumber, success, responseStatus, errorMessage]
+  );
+}
+
+async function deliverAlertNotification({ alert, channel, destination, requestFactory }) {
+  let attempt = 0;
+  while (attempt < AUTH_ALERT_DELIVERY_MAX_ATTEMPTS) {
+    attempt += 1;
+    try {
+      const response = await requestFactory();
+      if (!response.ok) {
+        const errorText = (await response.text().catch(() => '')).slice(0, 500);
+        await logAlertDeliveryAttempt({
+          alertId: alert.id,
+          channel,
+          destination,
+          attemptNumber: attempt,
+          success: false,
+          responseStatus: response.status,
+          errorMessage: errorText || `HTTP ${response.status}`,
+        });
+        if (attempt < AUTH_ALERT_DELIVERY_MAX_ATTEMPTS) {
+          await waitFor(AUTH_ALERT_DELIVERY_BASE_DELAY_MS * (2 ** (attempt - 1)));
+          continue;
+        }
+        console.error(`[auth-alert:${alert.id}] ${channel} delivery failed with HTTP ${response.status}`);
+        return false;
+      }
+
+      await logAlertDeliveryAttempt({
+        alertId: alert.id,
+        channel,
+        destination,
+        attemptNumber: attempt,
+        success: true,
+        responseStatus: response.status,
+      });
+      return true;
+    } catch (error) {
+      await logAlertDeliveryAttempt({
+        alertId: alert.id,
+        channel,
+        destination,
+        attemptNumber: attempt,
+        success: false,
+        errorMessage: error.message,
+      });
+      if (attempt < AUTH_ALERT_DELIVERY_MAX_ATTEMPTS) {
+        await waitFor(AUTH_ALERT_DELIVERY_BASE_DELAY_MS * (2 ** (attempt - 1)));
+        continue;
+      }
+      console.error(`[auth-alert:${alert.id}] ${channel} delivery failed`, error);
+      return false;
+    }
+  }
+
+  return false;
+}
+
+async function evaluateAuthAlertThreshold({ eventType, userId, email, phone, ipAddress }) {
+  const config = getAuthAlertConfig(eventType);
+  if (!config) return;
+
+  const { subjectKey, subjectLabel } = buildAuthAlertSubject({ userId, email, phone, ipAddress });
+  const params = [eventType, config.windowMinutes];
+  const whereParts = ['event_type = $1', `created_at >= now() - ($2 * INTERVAL '1 minute')`];
+
+  if (userId) {
+    params.push(userId);
+    whereParts.push(`user_id = $${params.length}`);
+  } else if (email) {
+    params.push(String(email).toLowerCase());
+    whereParts.push(`lower(email) = $${params.length}`);
+  } else if (phone) {
+    params.push(phone);
+    whereParts.push(`phone = $${params.length}`);
+  } else if (ipAddress) {
+    params.push(ipAddress);
+    whereParts.push(`ip_address = $${params.length}`);
+  }
+
+  const { rows: countRows } = await pool.query(
+    `SELECT COUNT(*)::int AS event_count FROM auth_audit_logs WHERE ${whereParts.join(' AND ')}`,
+    params
+  );
+  const eventCount = Number(countRows[0]?.event_count || 0);
+  if (eventCount < config.threshold) return;
+
+  const { rows: existingRows } = await pool.query(
+    `
+      SELECT id
+      FROM auth_security_alerts
+      WHERE alert_type = $1
+        AND subject_key = $2
+        AND created_at >= now() - ($3 * INTERVAL '1 minute')
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [config.alertType, subjectKey, config.windowMinutes]
+  );
+  if (existingRows[0]) return;
+
+  const { rows: alertRows } = await pool.query(
+    `
+      INSERT INTO auth_security_alerts (
+        alert_type,
+        severity,
+        status,
+        subject_key,
+        subject_label,
+        event_count,
+        threshold,
+        window_minutes,
+        details
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+      RETURNING id, alert_type AS "alertType", severity, status, subject_key AS "subjectKey", subject_label AS "subjectLabel", event_count AS "eventCount", threshold, window_minutes AS "windowMinutes", details, created_at AS "createdAt"
+    `,
+    [
+      config.alertType,
+      config.severity,
+      'open',
+      subjectKey,
+      subjectLabel,
+      eventCount,
+      config.threshold,
+      config.windowMinutes,
+      JSON.stringify({ eventType, userId, email, phone, ipAddress }),
+    ]
+  );
+
+  const alert = alertRows[0];
+
+  const alertSummary = `${alert.alertType} (${alert.severity}) for ${subjectLabel}`;
+  const alertDetailsText = JSON.stringify(alert.details || {});
+
+  const notificationTasks = [];
+  if (AUTH_ALERT_WEBHOOK_URL) {
+    notificationTasks.push(
+      deliverAlertNotification({
+        alert,
+        channel: 'webhook',
+        destination: AUTH_ALERT_WEBHOOK_URL,
+        requestFactory: () => fetch(AUTH_ALERT_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source: 'vinscope-kenya',
+            category: 'auth_security_alert',
+            alert,
+          }),
+        }),
+      })
+    );
+  }
+
+  if (AUTH_ALERT_SLACK_WEBHOOK_URL) {
+    notificationTasks.push(
+      deliverAlertNotification({
+        alert,
+        channel: 'slack',
+        destination: AUTH_ALERT_SLACK_WEBHOOK_URL,
+        requestFactory: () => fetch(AUTH_ALERT_SLACK_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: `[${alert.severity.toUpperCase()}] ${alertSummary}\nCount: ${alert.eventCount}/${alert.threshold} in ${alert.windowMinutes} minutes\nDetails: ${alertDetailsText}`,
+          }),
+        }),
+      })
+    );
+  }
+
+  if (RESEND_API_KEY && AUTH_ALERT_EMAIL_FROM && AUTH_ALERT_EMAIL_TO.length) {
+    notificationTasks.push(
+      deliverAlertNotification({
+        alert,
+        channel: 'email',
+        destination: AUTH_ALERT_EMAIL_TO.join(','),
+        requestFactory: () => fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+          },
+          body: JSON.stringify({
+            from: AUTH_ALERT_EMAIL_FROM,
+            to: AUTH_ALERT_EMAIL_TO,
+            subject: `[${alert.severity.toUpperCase()}] ${alert.alertType}`,
+            text: `${alertSummary}\nCount: ${alert.eventCount}/${alert.threshold} in ${alert.windowMinutes} minutes\nDetails: ${alertDetailsText}`,
+          }),
+        }),
+      })
+    );
+  }
+
+  await Promise.allSettled(notificationTasks);
+
+  console.warn(`[auth-alert] ${config.alertType} for ${subjectLabel} (${eventCount} events in ${config.windowMinutes} minutes)`);
+}
+
+const requireAdmin = asyncHandler(async (req, res, next) => {
+  const allowed = await isUserAdmin(req.user.id);
+  if (!allowed) {
+    return sendApiError(req, res, 403, 'ADMIN_REQUIRED', 'Administrator access required');
+  }
+
+  next();
+});
+async function recordAuthAudit(req, {
+  eventType,
+  userId = null,
+  email = null,
+  phone = null,
+  success = true,
+  failureCode = null,
+  details = null,
+}) {
+  try {
+    const ipAddress = req.ip || null;
+    await pool.query(
+      `
+        INSERT INTO auth_audit_logs (
+          event_type,
+          user_id,
+          email,
+          phone,
+          success,
+          failure_code,
+          request_id,
+          ip_address,
+          user_agent,
+          details
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      `,
+      [
+        eventType,
+        userId,
+        email,
+        phone,
+        success,
+        failureCode,
+        req.requestId || null,
+        ipAddress,
+        req.get('user-agent') || null,
+        details ? JSON.stringify(details) : null,
+      ]
+    );
+
+    await evaluateAuthAlertThreshold({ eventType, userId, email, phone, ipAddress });
+  } catch (error) {
+    console.error(`[${req.requestId || 'no-request-id'}] Failed to write auth audit log`, error);
+  }
+}
+
+const escapeCsvValue = (value) => {
+  if (value == null) return '';
+  const normalized = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  if (/[",\n]/.test(normalized)) {
+    return `"${normalized.replace(/"/g, '""')}"`;
+  }
+  return normalized;
+};
+
+async function rotateRefreshSession(res, refreshToken) {
+  const tokenHash = hashRefreshToken(refreshToken);
+  const { rows } = await pool.query(
+    `
+      SELECT
+        rs.id,
+        rs.user_id,
+        rs.session_version,
+        rs.expires_at,
+        rs.created_at,
+        rs.last_used_at,
+        rs.revoked_at,
+        rs.replaced_by_token_hash,
+        u.email,
+        u.name,
+        u.is_verified,
+        u.is_admin,
+        u.verification_method,
+        u.session_version AS current_session_version
+      FROM refresh_sessions rs
+      JOIN users u ON u.id = rs.user_id
+      WHERE rs.token_hash = $1
+    `,
+    [tokenHash]
+  );
+
+  const session = rows[0];
+  if (!session) {
+    return { ok: false, code: 'INVALID_REFRESH_TOKEN', message: 'Refresh token is invalid.' };
+  }
+
+  if (session.revoked_at) {
+    await revokeUserSessions(session.user_id);
+    await revokeAllRefreshSessionsForUser(session.user_id);
+    return { ok: false, code: 'REFRESH_TOKEN_REUSED', message: 'Refresh token reuse detected. Please sign in again.', userId: session.user_id };
+  }
+
+  if (new Date(session.expires_at).getTime() <= Date.now()) {
+    await pool.query('UPDATE refresh_sessions SET revoked_at = now() WHERE id = $1', [session.id]);
+    return { ok: false, code: 'REFRESH_TOKEN_EXPIRED', message: 'Refresh token has expired. Please sign in again.', userId: session.user_id };
+  }
+
+  const lastActivityAt = session.last_used_at || session.created_at;
+  if (lastActivityAt) {
+    const idleCutoff = Date.now() - (REFRESH_SESSION_IDLE_MINUTES * 60 * 1000);
+    const lastActivityTime = new Date(lastActivityAt).getTime();
+    if (!Number.isNaN(lastActivityTime) && lastActivityTime < idleCutoff) {
+      await pool.query('UPDATE refresh_sessions SET revoked_at = now() WHERE id = $1', [session.id]);
+      return {
+        ok: false,
+        code: 'REFRESH_SESSION_IDLE_EXPIRED',
+        message: 'Your session expired after inactivity. Please sign in again.',
+        userId: session.user_id,
+      };
+    }
+  }
+
+  if (Number(session.current_session_version || 0) !== Number(session.session_version || 0)) {
+    await revokeAllRefreshSessionsForUser(session.user_id);
+    return { ok: false, code: 'SESSION_REVOKED', message: 'Your session is no longer valid. Please sign in again.', userId: session.user_id };
+  }
+
+  const nextRefreshSession = await createRefreshSession(session.user_id, Number(session.current_session_version || 0), buildSessionMetadata(req));
+  await pool.query(
+    `
+      UPDATE refresh_sessions
+      SET revoked_at = now(), replaced_by_token_hash = $2, last_used_at = now()
+      WHERE id = $1
+    `,
+    [session.id, nextRefreshSession.tokenHash]
+  );
+
+  const accessToken = signAccessToken({
+    id: session.user_id,
+    email: session.email,
+    sessionVersion: Number(session.current_session_version || 0),
+  });
+  setAuthCookies(res, accessToken, nextRefreshSession.refreshToken);
+
+  return {
+    ok: true,
+    user: {
+      id: session.user_id,
+      email: session.email,
+      name: session.name,
+      isVerified: session.is_verified,
+      isAdmin: session.is_admin,
+      verificationMethod: session.verification_method,
+    },
+  };
+}
+
+setSessionVersionResolver(getCurrentSessionVersion);
+
 function validateEnvironment() {
   const warnings = [];
 
-  try {
-    new URL(connectionString);
-  } catch {
-    throw new Error('Invalid DATABASE_URL. Use a full postgres or postgresql connection URL.');
+  const parsedConnectionString = parseDbUrl(connectionString);
+  if (!parsedConnectionString) {
+    throw new Error('Invalid database URL. Use a full postgres or postgresql connection URL.');
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    warnings.push(`Using database host: ${parsedConnectionString.hostname}`);
   }
 
   if (!String(process.env.JWT_SECRET || '').trim()) {
@@ -95,6 +1067,10 @@ function validateEnvironment() {
   const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || '').trim();
   if (publicBaseUrl && !publicBaseUrl.startsWith('https://')) {
     warnings.push('PUBLIC_BASE_URL should be HTTPS for M-Pesa callbacks.');
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    warnings.push(`Auth cookies enforced as secure=${AUTH_COOKIE_POLICY.secure}, httpOnly=${AUTH_COOKIE_POLICY.httpOnly}, sameSite=${AUTH_COOKIE_POLICY.sameSite}.`);
   }
 
   for (const warning of warnings) {
@@ -3144,7 +4120,166 @@ const initializeDatabase = async () => {
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT false;');
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_method VARCHAR(20) NOT NULL DEFAULT 'email';");
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0;');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;');
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS users_phone_unique ON users (phone) WHERE phone IS NOT NULL;');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_legal_consents (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      policy_version VARCHAR(64) NOT NULL,
+      accepted_terms BOOLEAN NOT NULL,
+      accepted_privacy BOOLEAN NOT NULL,
+      source VARCHAR(40) NOT NULL DEFAULT 'register',
+      ip_address VARCHAR(120),
+      user_agent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS user_legal_consents_user_created_idx ON user_legal_consents (user_id, created_at DESC);');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_data_deletion_requests (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      email VARCHAR(255),
+      reason TEXT,
+      status VARCHAR(30) NOT NULL DEFAULT 'pending',
+      requested_by_user BOOLEAN NOT NULL DEFAULT true,
+      ip_address VARCHAR(120),
+      user_agent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      resolved_at TIMESTAMPTZ,
+      resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      resolution_note TEXT
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS user_data_deletion_requests_status_created_idx ON user_data_deletion_requests (status, created_at DESC);');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_error_events (
+      id SERIAL PRIMARY KEY,
+      source VARCHAR(40) NOT NULL,
+      category VARCHAR(80) NOT NULL,
+      severity VARCHAR(20) NOT NULL DEFAULT 'error',
+      message TEXT NOT NULL,
+      code VARCHAR(80),
+      request_id VARCHAR(100),
+      path TEXT,
+      method VARCHAR(20),
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      ip_address VARCHAR(120),
+      user_agent TEXT,
+      stack TEXT,
+      details JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS app_error_events_created_idx ON app_error_events (created_at DESC);');
+  await pool.query('CREATE INDEX IF NOT EXISTS app_error_events_source_category_idx ON app_error_events (source, category, created_at DESC);');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auth_abuse_buckets (
+      scope VARCHAR(80) NOT NULL,
+      bucket_key VARCHAR(255) NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      first_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      locked_until TIMESTAMPTZ,
+      PRIMARY KEY (scope, bucket_key)
+    );
+  `);
+  if (ADMIN_EMAILS.length) {
+    await pool.query('UPDATE users SET is_admin = true WHERE lower(email) = ANY($1::text[])', [ADMIN_EMAILS]);
+  }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auth_audit_logs (
+      id SERIAL PRIMARY KEY,
+      event_type VARCHAR(80) NOT NULL,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      email VARCHAR(255),
+      phone VARCHAR(20),
+      success BOOLEAN NOT NULL DEFAULT true,
+      failure_code VARCHAR(80),
+      request_id VARCHAR(100),
+      ip_address VARCHAR(120),
+      user_agent TEXT,
+      details JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS auth_audit_logs_event_created_idx ON auth_audit_logs (event_type, created_at DESC);');
+  await pool.query('CREATE INDEX IF NOT EXISTS auth_audit_logs_user_created_idx ON auth_audit_logs (user_id, created_at DESC);');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auth_security_alerts (
+      id SERIAL PRIMARY KEY,
+      alert_type VARCHAR(80) NOT NULL,
+      severity VARCHAR(20) NOT NULL DEFAULT 'warning',
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      subject_key VARCHAR(255) NOT NULL,
+      subject_label VARCHAR(255) NOT NULL,
+      event_count INTEGER NOT NULL,
+      threshold INTEGER NOT NULL,
+      window_minutes INTEGER NOT NULL,
+      details JSONB,
+      acknowledged_at TIMESTAMPTZ,
+      acknowledged_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      resolved_at TIMESTAMPTZ,
+      resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      resolution_note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query("ALTER TABLE auth_security_alerts ADD COLUMN IF NOT EXISTS severity VARCHAR(20) NOT NULL DEFAULT 'warning';");
+  await pool.query("ALTER TABLE auth_security_alerts ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'open';");
+  await pool.query('ALTER TABLE auth_security_alerts ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMPTZ;');
+  await pool.query('ALTER TABLE auth_security_alerts ADD COLUMN IF NOT EXISTS acknowledged_by INTEGER REFERENCES users(id) ON DELETE SET NULL;');
+  await pool.query('ALTER TABLE auth_security_alerts ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ;');
+  await pool.query('ALTER TABLE auth_security_alerts ADD COLUMN IF NOT EXISTS resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL;');
+  await pool.query('ALTER TABLE auth_security_alerts ADD COLUMN IF NOT EXISTS resolution_note TEXT;');
+  await pool.query('CREATE INDEX IF NOT EXISTS auth_security_alerts_type_created_idx ON auth_security_alerts (alert_type, created_at DESC);');
+  await pool.query('CREATE INDEX IF NOT EXISTS auth_security_alerts_subject_created_idx ON auth_security_alerts (subject_key, created_at DESC);');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auth_alert_delivery_logs (
+      id SERIAL PRIMARY KEY,
+      alert_id INTEGER NOT NULL REFERENCES auth_security_alerts(id) ON DELETE CASCADE,
+      channel VARCHAR(30) NOT NULL,
+      destination TEXT NOT NULL,
+      attempt_number INTEGER NOT NULL,
+      success BOOLEAN NOT NULL DEFAULT false,
+      response_status INTEGER,
+      error_message TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS auth_alert_delivery_logs_alert_created_idx ON auth_alert_delivery_logs (alert_id, created_at DESC);');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS refresh_sessions (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash VARCHAR(64) UNIQUE NOT NULL,
+      session_version INTEGER NOT NULL DEFAULT 0,
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      revoked_reason VARCHAR(80),
+      replaced_by_token_hash VARCHAR(64),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at TIMESTAMPTZ,
+      user_agent TEXT,
+      ip_address VARCHAR(120)
+    );
+  `);
+
+  await pool.query('ALTER TABLE refresh_sessions ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0;');
+  await pool.query('ALTER TABLE refresh_sessions ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;');
+  await pool.query('ALTER TABLE refresh_sessions ADD COLUMN IF NOT EXISTS revoked_reason VARCHAR(80);');
+  await pool.query('ALTER TABLE refresh_sessions ADD COLUMN IF NOT EXISTS replaced_by_token_hash VARCHAR(64);');
+  await pool.query('ALTER TABLE refresh_sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();');
+  await pool.query('ALTER TABLE refresh_sessions ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;');
+  await pool.query('ALTER TABLE refresh_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT;');
+  await pool.query('ALTER TABLE refresh_sessions ADD COLUMN IF NOT EXISTS ip_address VARCHAR(120);');
+  await pool.query('CREATE INDEX IF NOT EXISTS refresh_sessions_user_id_idx ON refresh_sessions (user_id);');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS saved_reports (
@@ -3221,14 +4356,45 @@ const initializeDatabase = async () => {
   }
 };
 
-app.get('/health', async (_req, res) => {
+app.get('/health', asyncHandler(async (_req, res) => {
   try {
     await pool.query('SELECT 1');
     res.json({ ok: true, service: 'vinscope-vehicle-api', database: 'postgres' });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
-});
+}));
+
+app.post('/api/client-errors', asyncHandler(async (req, res) => {
+  const payload = req.body || {};
+  const message = String(payload.message || '').trim();
+
+  if (!message) {
+    return sendApiError(req, res, 400, 'CLIENT_ERROR_MESSAGE_REQUIRED', 'Client error message is required');
+  }
+
+  await persistErrorEvent({
+    source: 'client',
+    category: String(payload.category || 'ui_error').trim(),
+    severity: String(payload.severity || 'error').trim().toLowerCase(),
+    message,
+    code: payload.code || null,
+    requestId: req.requestId || null,
+    path: payload.path || req.get('referer') || null,
+    method: 'CLIENT',
+    userId: null,
+    ipAddress: req.ip || null,
+    userAgent: req.get('user-agent') || null,
+    stack: payload.stack || null,
+    details: {
+      componentStack: payload.componentStack || null,
+      href: payload.href || null,
+      extra: payload.extra || null,
+    },
+  });
+
+  res.status(202).json({ ok: true });
+}));
 
 app.get('/api/admin/health/mpesa', requireAuth, (_req, res) => {
   const status = getMpesaConfigStatus();
@@ -3244,6 +4410,494 @@ app.get('/api/admin/health/mpesa', requireAuth, (_req, res) => {
     mode: status.configured ? 'live' : 'demo-fallback',
   });
 });
+
+app.get('/api/admin/audit-logs', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const {
+    userId,
+    email,
+    eventType,
+    from,
+    to,
+    limit,
+    offset,
+    format,
+  } = req.query || {};
+
+  const whereParts = [];
+  const params = [];
+
+  if (userId) {
+    params.push(Number(userId));
+    whereParts.push(`user_id = $${params.length}`);
+  }
+
+  if (email) {
+    params.push(String(email).trim().toLowerCase());
+    whereParts.push(`lower(email) = $${params.length}`);
+  }
+
+  if (eventType) {
+    params.push(String(eventType).trim());
+    whereParts.push(`event_type = $${params.length}`);
+  }
+
+  if (from) {
+    const fromDate = new Date(String(from));
+    if (Number.isNaN(fromDate.getTime())) {
+      return sendApiError(req, res, 400, 'INVALID_FROM_DATE', 'Invalid from date');
+    }
+    params.push(fromDate.toISOString());
+    whereParts.push(`created_at >= $${params.length}`);
+  }
+
+  if (to) {
+    const toDate = new Date(String(to));
+    if (Number.isNaN(toDate.getTime())) {
+      return sendApiError(req, res, 400, 'INVALID_TO_DATE', 'Invalid to date');
+    }
+    params.push(toDate.toISOString());
+    whereParts.push(`created_at <= $${params.length}`);
+  }
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
+
+  const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM auth_audit_logs ${whereClause}`,
+    params
+  );
+  const total = Number(countResult.rows[0]?.total || 0);
+
+  const queryParams = [...params, safeLimit, safeOffset];
+  const { rows } = await pool.query(
+    `
+      SELECT
+        id,
+        event_type AS "eventType",
+        user_id AS "userId",
+        email,
+        phone,
+        success,
+        failure_code AS "failureCode",
+        request_id AS "requestId",
+        ip_address AS "ipAddress",
+        user_agent AS "userAgent",
+        details,
+        created_at AS "createdAt"
+      FROM auth_audit_logs
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${queryParams.length - 1}
+      OFFSET $${queryParams.length}
+    `,
+    queryParams
+  );
+
+  if (String(format || '').toLowerCase() === 'csv') {
+    const header = ['id', 'eventType', 'userId', 'email', 'phone', 'success', 'failureCode', 'requestId', 'ipAddress', 'userAgent', 'details', 'createdAt'];
+    const lines = [header.join(',')];
+    for (const row of rows) {
+      lines.push([
+        row.id,
+        row.eventType,
+        row.userId,
+        row.email,
+        row.phone,
+        row.success,
+        row.failureCode,
+        row.requestId,
+        row.ipAddress,
+        row.userAgent,
+        row.details,
+        row.createdAt,
+      ].map(escapeCsvValue).join(','));
+    }
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="auth-audit-logs.csv"');
+    return res.send(lines.join('\n'));
+  }
+
+  res.json({
+    logs: rows,
+    pagination: {
+      offset: safeOffset,
+      limit: safeLimit,
+      total,
+      hasMore: safeOffset + rows.length < total,
+      nextOffset: safeOffset + rows.length < total ? safeOffset + rows.length : null,
+      previousOffset: safeOffset > 0 ? Math.max(safeOffset - safeLimit, 0) : null,
+    },
+    filters: { userId: userId || null, email: email || null, eventType: eventType || null, from: from || null, to: to || null, limit: safeLimit, offset: safeOffset },
+  });
+}));
+
+app.get('/api/admin/security-alerts', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const {
+    alertType,
+    severity,
+    status,
+    subject,
+    from,
+    to,
+    limit,
+    offset,
+    format,
+  } = req.query || {};
+
+  const whereParts = [];
+  const params = [];
+
+  if (alertType) {
+    params.push(String(alertType).trim());
+    whereParts.push(`alert_type = $${params.length}`);
+  }
+
+  if (severity) {
+    params.push(String(severity).trim().toLowerCase());
+    whereParts.push(`lower(severity) = $${params.length}`);
+  }
+
+  if (status) {
+    params.push(String(status).trim().toLowerCase());
+    whereParts.push(`lower(status) = $${params.length}`);
+  }
+
+  if (subject) {
+    params.push(String(subject).trim().toLowerCase());
+    whereParts.push(`lower(subject_label) LIKE '%' || $${params.length} || '%'`);
+  }
+
+  if (from) {
+    const fromDate = new Date(String(from));
+    if (Number.isNaN(fromDate.getTime())) {
+      return sendApiError(req, res, 400, 'INVALID_FROM_DATE', 'Invalid from date');
+    }
+    params.push(fromDate.toISOString());
+    whereParts.push(`created_at >= $${params.length}`);
+  }
+
+  if (to) {
+    const toDate = new Date(String(to));
+    if (Number.isNaN(toDate.getTime())) {
+      return sendApiError(req, res, 400, 'INVALID_TO_DATE', 'Invalid to date');
+    }
+    params.push(toDate.toISOString());
+    whereParts.push(`created_at <= $${params.length}`);
+  }
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
+  const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM auth_security_alerts ${whereClause}`,
+    params
+  );
+  const total = Number(countResult.rows[0]?.total || 0);
+
+  const queryParams = [...params, safeLimit, safeOffset];
+  const { rows } = await pool.query(
+    `
+      SELECT
+        id,
+        alert_type AS "alertType",
+        severity,
+        status,
+        subject_key AS "subjectKey",
+        subject_label AS "subjectLabel",
+        event_count AS "eventCount",
+        threshold,
+        window_minutes AS "windowMinutes",
+        details,
+        acknowledged_at AS "acknowledgedAt",
+        acknowledged_by AS "acknowledgedBy",
+        resolved_at AS "resolvedAt",
+        resolved_by AS "resolvedBy",
+        resolution_note AS "resolutionNote",
+        created_at AS "createdAt"
+      FROM auth_security_alerts
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${queryParams.length - 1}
+      OFFSET $${queryParams.length}
+    `,
+    queryParams
+  );
+
+  if (String(format || '').toLowerCase() === 'csv') {
+    const header = ['id', 'alertType', 'severity', 'status', 'subjectKey', 'subjectLabel', 'eventCount', 'threshold', 'windowMinutes', 'details', 'acknowledgedAt', 'acknowledgedBy', 'resolvedAt', 'resolvedBy', 'resolutionNote', 'createdAt'];
+    const lines = [header.join(',')];
+    for (const row of rows) {
+      lines.push([
+        row.id,
+        row.alertType,
+        row.severity,
+        row.status,
+        row.subjectKey,
+        row.subjectLabel,
+        row.eventCount,
+        row.threshold,
+        row.windowMinutes,
+        row.details,
+        row.acknowledgedAt,
+        row.acknowledgedBy,
+        row.resolvedAt,
+        row.resolvedBy,
+        row.resolutionNote,
+        row.createdAt,
+      ].map(escapeCsvValue).join(','));
+    }
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="auth-security-alerts.csv"');
+    return res.send(lines.join('\n'));
+  }
+
+  res.json({
+    alerts: rows,
+    pagination: {
+      offset: safeOffset,
+      limit: safeLimit,
+      total,
+      hasMore: safeOffset + rows.length < total,
+      nextOffset: safeOffset + rows.length < total ? safeOffset + rows.length : null,
+      previousOffset: safeOffset > 0 ? Math.max(safeOffset - safeLimit, 0) : null,
+    },
+    filters: {
+      alertType: alertType || null,
+      severity: severity || null,
+      status: status || null,
+      subject: subject || null,
+      from: from || null,
+      to: to || null,
+      limit: safeLimit,
+      offset: safeOffset,
+    },
+  });
+}));
+
+app.get('/api/admin/alert-delivery-logs', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const {
+    alertId,
+    channel,
+    success,
+    from,
+    to,
+    limit,
+    offset,
+  } = req.query || {};
+
+  const whereParts = [];
+  const params = [];
+
+  if (alertId) {
+    params.push(Number(alertId));
+    whereParts.push(`alert_id = $${params.length}`);
+  }
+
+  if (channel) {
+    params.push(String(channel).trim().toLowerCase());
+    whereParts.push(`lower(channel) = $${params.length}`);
+  }
+
+  if (success === 'true' || success === 'false') {
+    params.push(success === 'true');
+    whereParts.push(`success = $${params.length}`);
+  }
+
+  if (from) {
+    const fromDate = new Date(String(from));
+    if (Number.isNaN(fromDate.getTime())) {
+      return sendApiError(req, res, 400, 'INVALID_FROM_DATE', 'Invalid from date');
+    }
+    params.push(fromDate.toISOString());
+    whereParts.push(`created_at >= $${params.length}`);
+  }
+
+  if (to) {
+    const toDate = new Date(String(to));
+    if (Number.isNaN(toDate.getTime())) {
+      return sendApiError(req, res, 400, 'INVALID_TO_DATE', 'Invalid to date');
+    }
+    params.push(toDate.toISOString());
+    whereParts.push(`created_at <= $${params.length}`);
+  }
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
+  const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM auth_alert_delivery_logs ${whereClause}`,
+    params
+  );
+  const total = Number(countResult.rows[0]?.total || 0);
+
+  const queryParams = [...params, safeLimit, safeOffset];
+  const { rows } = await pool.query(
+    `
+      SELECT
+        id,
+        alert_id AS "alertId",
+        channel,
+        destination,
+        attempt_number AS "attemptNumber",
+        success,
+        response_status AS "responseStatus",
+        error_message AS "errorMessage",
+        created_at AS "createdAt"
+      FROM auth_alert_delivery_logs
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${queryParams.length - 1}
+      OFFSET $${queryParams.length}
+    `,
+    queryParams
+  );
+
+  res.json({
+    logs: rows,
+    pagination: {
+      offset: safeOffset,
+      limit: safeLimit,
+      total,
+      hasMore: safeOffset + rows.length < total,
+      nextOffset: safeOffset + rows.length < total ? safeOffset + rows.length : null,
+      previousOffset: safeOffset > 0 ? Math.max(safeOffset - safeLimit, 0) : null,
+    },
+    filters: {
+      alertId: alertId || null,
+      channel: channel || null,
+      success: success ?? null,
+      from: from || null,
+      to: to || null,
+      limit: safeLimit,
+      offset: safeOffset,
+    },
+  });
+}));
+
+app.patch('/api/admin/security-alerts/bulk', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [];
+  const action = String(req.body?.action || '').trim().toLowerCase();
+  const note = String(req.body?.note || '').trim() || null;
+
+  if (!ids.length) {
+    return sendApiError(req, res, 400, 'ALERT_IDS_REQUIRED', 'At least one alert id is required');
+  }
+
+  if (!['acknowledge', 'resolve', 'reopen'].includes(action)) {
+    return sendApiError(req, res, 400, 'INVALID_ALERT_ACTION', 'Action must be acknowledge, resolve, or reopen');
+  }
+
+  const query = action === 'acknowledge'
+    ? `
+        UPDATE auth_security_alerts
+        SET
+          status = CASE WHEN status = 'resolved' THEN status ELSE 'acknowledged' END,
+          acknowledged_at = COALESCE(acknowledged_at, now()),
+          acknowledged_by = COALESCE(acknowledged_by, $2)
+        WHERE id = ANY($1::int[])
+        RETURNING id, alert_type AS "alertType", severity, status, subject_key AS "subjectKey", subject_label AS "subjectLabel", event_count AS "eventCount", threshold, window_minutes AS "windowMinutes", details, acknowledged_at AS "acknowledgedAt", acknowledged_by AS "acknowledgedBy", resolved_at AS "resolvedAt", resolved_by AS "resolvedBy", resolution_note AS "resolutionNote", created_at AS "createdAt"
+      `
+    : action === 'resolve'
+      ? `
+        UPDATE auth_security_alerts
+        SET
+          status = 'resolved',
+          acknowledged_at = COALESCE(acknowledged_at, now()),
+          acknowledged_by = COALESCE(acknowledged_by, $2),
+          resolved_at = now(),
+          resolved_by = $2,
+          resolution_note = COALESCE($3, resolution_note)
+        WHERE id = ANY($1::int[])
+        RETURNING id, alert_type AS "alertType", severity, status, subject_key AS "subjectKey", subject_label AS "subjectLabel", event_count AS "eventCount", threshold, window_minutes AS "windowMinutes", details, acknowledged_at AS "acknowledgedAt", acknowledged_by AS "acknowledgedBy", resolved_at AS "resolvedAt", resolved_by AS "resolvedBy", resolution_note AS "resolutionNote", created_at AS "createdAt"
+      `
+      : `
+        UPDATE auth_security_alerts
+        SET
+          status = 'open',
+          resolved_at = NULL,
+          resolved_by = NULL,
+          resolution_note = NULL
+        WHERE id = ANY($1::int[])
+        RETURNING id, alert_type AS "alertType", severity, status, subject_key AS "subjectKey", subject_label AS "subjectLabel", event_count AS "eventCount", threshold, window_minutes AS "windowMinutes", details, acknowledged_at AS "acknowledgedAt", acknowledged_by AS "acknowledgedBy", resolved_at AS "resolvedAt", resolved_by AS "resolvedBy", resolution_note AS "resolutionNote", created_at AS "createdAt"
+      `;
+
+  const { rows } = await pool.query(
+    query,
+    action === 'acknowledge'
+      ? [ids, req.user.id]
+      : action === 'resolve'
+        ? [ids, req.user.id, note]
+        : [ids]
+  );
+  res.json({ alerts: rows, updatedCount: rows.length });
+}));
+
+app.patch('/api/admin/security-alerts/:id', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const alertId = Number(req.params.id);
+  const action = String(req.body?.action || '').trim().toLowerCase();
+  const note = String(req.body?.note || '').trim() || null;
+
+  if (!Number.isFinite(alertId)) {
+    return sendApiError(req, res, 400, 'INVALID_ALERT_ID', 'Invalid alert id');
+  }
+
+  if (!['acknowledge', 'resolve', 'reopen'].includes(action)) {
+    return sendApiError(req, res, 400, 'INVALID_ALERT_ACTION', 'Action must be acknowledge, resolve, or reopen');
+  }
+
+  const query = action === 'acknowledge'
+    ? `
+        UPDATE auth_security_alerts
+        SET
+          status = CASE WHEN status = 'resolved' THEN status ELSE 'acknowledged' END,
+          acknowledged_at = COALESCE(acknowledged_at, now()),
+          acknowledged_by = COALESCE(acknowledged_by, $2)
+        WHERE id = $1
+        RETURNING id, alert_type AS "alertType", severity, status, subject_key AS "subjectKey", subject_label AS "subjectLabel", event_count AS "eventCount", threshold, window_minutes AS "windowMinutes", details, acknowledged_at AS "acknowledgedAt", acknowledged_by AS "acknowledgedBy", resolved_at AS "resolvedAt", resolved_by AS "resolvedBy", resolution_note AS "resolutionNote", created_at AS "createdAt"
+      `
+    : action === 'resolve'
+      ? `
+        UPDATE auth_security_alerts
+        SET
+          status = 'resolved',
+          acknowledged_at = COALESCE(acknowledged_at, now()),
+          acknowledged_by = COALESCE(acknowledged_by, $2),
+          resolved_at = now(),
+          resolved_by = $2,
+          resolution_note = COALESCE($3, resolution_note)
+        WHERE id = $1
+        RETURNING id, alert_type AS "alertType", severity, status, subject_key AS "subjectKey", subject_label AS "subjectLabel", event_count AS "eventCount", threshold, window_minutes AS "windowMinutes", details, acknowledged_at AS "acknowledgedAt", acknowledged_by AS "acknowledgedBy", resolved_at AS "resolvedAt", resolved_by AS "resolvedBy", resolution_note AS "resolutionNote", created_at AS "createdAt"
+      `
+      : `
+        UPDATE auth_security_alerts
+        SET
+          status = 'open',
+          resolved_at = NULL,
+          resolved_by = NULL,
+          resolution_note = NULL
+        WHERE id = $1
+        RETURNING id, alert_type AS "alertType", severity, status, subject_key AS "subjectKey", subject_label AS "subjectLabel", event_count AS "eventCount", threshold, window_minutes AS "windowMinutes", details, acknowledged_at AS "acknowledgedAt", acknowledged_by AS "acknowledgedBy", resolved_at AS "resolvedAt", resolved_by AS "resolvedBy", resolution_note AS "resolutionNote", created_at AS "createdAt"
+      `;
+
+  const { rows } = await pool.query(
+    query,
+    action === 'acknowledge'
+      ? [alertId, req.user.id]
+      : action === 'resolve'
+        ? [alertId, req.user.id, note]
+        : [alertId]
+  );
+  if (!rows[0]) {
+    return sendApiError(req, res, 404, 'SECURITY_ALERT_NOT_FOUND', 'Security alert not found');
+  }
+
+  res.json({ alert: rows[0] });
+}));
 
 const VEHICLE_COLUMNS = `
   vin, make, model, year, status, theft, ownership, accidents, mileage, score, source,
@@ -3370,14 +5024,18 @@ async function upsertVehicle(vehicle) {
   return withDerivedScore(rows[0]);
 }
 
-app.get('/api/vehicles/:vin', async (req, res) => {
+app.get('/api/vehicles/:vin', asyncHandler(async (req, res) => {
   const vin = req.params.vin.trim().toUpperCase();
 
   if (!isValidVinFormat(vin)) {
-    return res.status(400).json({
-      error: `Invalid VIN format. A VIN is 17 characters (letters and numbers, excluding I, O, Q). You entered ${vin.length} character${vin.length === 1 ? '' : 's'}.`,
-      vin,
-    });
+    return sendApiError(
+      req,
+      res,
+      400,
+      'INVALID_VIN_FORMAT',
+      `Invalid VIN format. A VIN is 17 characters (letters and numbers, excluding I, O, Q). You entered ${vin.length} character${vin.length === 1 ? '' : 's'}.`,
+      { vin }
+    );
   }
 
   const { rows } = await pool.query(`SELECT ${VEHICLE_COLUMNS} FROM vehicles WHERE vin = $1`, [vin]);
@@ -3392,19 +5050,19 @@ app.get('/api/vehicles/:vin', async (req, res) => {
   // public source exists), which is reflected via historyAvailable: false.
   const decoded = await decodeVinWithNhtsa(vin);
   if (!decoded) {
-    return res.status(404).json({ error: 'Vehicle not found', vin });
+    return sendApiError(req, res, 404, 'VEHICLE_NOT_FOUND', 'Vehicle not found', { vin });
   }
 
   const mapped = mapNhtsaResultToVehicle(vin, decoded);
   const cached = await upsertVehicle(mapped);
   return res.json(cached);
-});
+}));
 
 // Requires an authenticated user so only logged-in users can create/overwrite vehicle records.
-app.post('/api/vehicles', requireAuth, async (req, res) => {
+app.post('/api/vehicles', requireAuth, asyncHandler(async (req, res) => {
   const vehicle = req.body;
   if (!vehicle?.vin) {
-    return res.status(400).json({ error: 'VIN is required' });
+    return sendApiError(req, res, 400, 'VIN_REQUIRED', 'VIN is required');
   }
 
   const saved = await upsertVehicle({
@@ -3414,7 +5072,7 @@ app.post('/api/vehicles', requireAuth, async (req, res) => {
   });
 
   return res.status(201).json(saved);
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -3424,29 +5082,58 @@ app.post('/api/vehicles', requireAuth, async (req, res) => {
 // or 'login' (existing account) purposes. In demo mode (no SMS provider configured)
 // the code is echoed back in the response outside of production so the flow can
 // still be tested end to end.
-app.post('/api/auth/otp/send', otpLimiter, async (req, res) => {
+app.post('/api/auth/otp/send', otpLimiter, asyncHandler(async (req, res) => {
   const { phone, purpose } = req.body || {};
+  const normalizedPhone = normalizeKenyanPhone(phone);
+
+  if (normalizedPhone) {
+    const phoneLock = await ensureAbuseNotLocked(req, res, 'OTP_SEND_PHONE', normalizedPhone, 'OTP_SEND_PHONE_LIMIT', 'Too many code requests for this phone number. Please try again later.');
+    if (phoneLock) return phoneLock;
+  }
+
+  const ipLock = await ensureAbuseNotLocked(req, res, 'OTP_SEND_IP', req.ip || 'unknown', 'OTP_SEND_IP_LIMIT', 'Too many code requests from this network. Please try again later.');
+  if (ipLock) return ipLock;
+
+  const ipQuota = await registerAbuseAttempt('OTP_SEND_IP', req.ip || 'unknown', {
+    threshold: OTP_SEND_MAX_PER_IP,
+    windowMinutes: OTP_SEND_WINDOW_MINUTES,
+    lockoutMinutes: OTP_SEND_LOCKOUT_MINUTES,
+  });
+  if (ipQuota.blocked) {
+    return sendApiError(req, res, 429, 'OTP_SEND_IP_LIMIT', 'Too many code requests from this network. Please try again later.', { lockedUntil: ipQuota.lockedUntil });
+  }
+
+  if (normalizedPhone) {
+    const phoneQuota = await registerAbuseAttempt('OTP_SEND_PHONE', normalizedPhone, {
+      threshold: OTP_SEND_MAX_PER_PHONE,
+      windowMinutes: OTP_SEND_WINDOW_MINUTES,
+      lockoutMinutes: OTP_SEND_LOCKOUT_MINUTES,
+    });
+    if (phoneQuota.blocked) {
+      return sendApiError(req, res, 429, 'OTP_SEND_PHONE_LIMIT', 'Too many code requests for this phone number. Please try again later.', { lockedUntil: phoneQuota.lockedUntil });
+    }
+  }
 
   const issued = await issueOtp(pool, phone);
   if (!issued) {
-    return res.status(400).json({ error: 'Enter a valid Kenyan phone number (e.g. 0712345678).' });
+    return sendApiError(req, res, 400, 'INVALID_PHONE', 'Enter a valid Kenyan phone number (e.g. 0712345678).');
   }
 
   try {
     if (purpose === 'login') {
       const { rows } = await pool.query('SELECT id FROM users WHERE phone = $1', [issued.normalized]);
       if (!rows.length) {
-        return res.status(404).json({ error: 'No account found with that phone number.' });
+        return sendApiError(req, res, 404, 'PHONE_ACCOUNT_NOT_FOUND', 'No account found with that phone number.');
       }
     } else {
       const { rows } = await pool.query('SELECT id FROM users WHERE phone = $1', [issued.normalized]);
       if (rows.length) {
-        return res.status(409).json({ error: 'An account with that phone number already exists.' });
+        return sendApiError(req, res, 409, 'PHONE_ALREADY_REGISTERED', 'An account with that phone number already exists.');
       }
     }
   } catch (error) {
     console.error('OTP lookup failed', error);
-    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+    return sendApiError(req, res, 500, 'OTP_LOOKUP_FAILED', 'Something went wrong. Please try again.');
   }
 
   const demoModeAllowed = process.env.NODE_ENV !== 'production' || process.env.OTP_DEMO_MODE === 'true';
@@ -3455,7 +5142,7 @@ app.post('/api/auth/otp/send', otpLimiter, async (req, res) => {
   } catch (error) {
     console.error('SMS send failed', error);
     if (!demoModeAllowed) {
-      return res.status(502).json({ error: 'Could not send the SMS right now. Please try again.' });
+      return sendApiError(req, res, 502, 'SMS_SEND_FAILED', 'Could not send the SMS right now. Please try again.');
     }
     // Provider is configured but failing (e.g. bad credentials) - fall through to the demo code below.
   }
@@ -3470,46 +5157,93 @@ app.post('/api/auth/otp/send', otpLimiter, async (req, res) => {
   }
 
   return res.json(response);
-});
+}));
 
 // Verifies a phone + code pair and logs the matching account in - passwordless login via SMS.
-app.post('/api/auth/otp/login', loginLimiter, async (req, res) => {
+app.post('/api/auth/otp/login', loginLimiter, asyncHandler(async (req, res) => {
   const { phone, code } = req.body || {};
+  const normalizedPhone = normalizeKenyanPhone(phone);
+
+  if (normalizedPhone) {
+    const phoneLock = await ensureAbuseNotLocked(req, res, 'OTP_VERIFY_PHONE', normalizedPhone, 'OTP_VERIFY_PHONE_LIMIT', 'Too many OTP attempts for this phone number. Please try again later.');
+    if (phoneLock) return phoneLock;
+  }
+  const ipLock = await ensureAbuseNotLocked(req, res, 'OTP_VERIFY_IP', req.ip || 'unknown', 'OTP_VERIFY_IP_LIMIT', 'Too many OTP attempts from this network. Please try again later.');
+  if (ipLock) return ipLock;
 
   const result = await verifyOtp(pool, phone, code);
   if (!result.success) {
-    return res.status(400).json({ error: result.message });
+    if (normalizedPhone) {
+      const phoneFailure = await registerAbuseAttempt('OTP_VERIFY_PHONE', normalizedPhone, {
+        threshold: OTP_VERIFY_MAX_FAILURES_PER_PHONE,
+        windowMinutes: OTP_VERIFY_WINDOW_MINUTES,
+        lockoutMinutes: OTP_VERIFY_LOCKOUT_MINUTES,
+      });
+      if (phoneFailure.blocked) {
+        return sendApiError(req, res, 429, 'OTP_VERIFY_PHONE_LIMIT', 'Too many OTP attempts for this phone number. Please try again later.', { lockedUntil: phoneFailure.lockedUntil });
+      }
+    }
+
+    const ipFailure = await registerAbuseAttempt('OTP_VERIFY_IP', req.ip || 'unknown', {
+      threshold: OTP_VERIFY_MAX_FAILURES_PER_IP,
+      windowMinutes: OTP_VERIFY_WINDOW_MINUTES,
+      lockoutMinutes: OTP_VERIFY_LOCKOUT_MINUTES,
+    });
+    if (ipFailure.blocked) {
+      return sendApiError(req, res, 429, 'OTP_VERIFY_IP_LIMIT', 'Too many OTP attempts from this network. Please try again later.', { lockedUntil: ipFailure.lockedUntil });
+    }
+
+    return sendApiError(req, res, 400, 'OTP_VERIFICATION_FAILED', result.message);
   }
 
   try {
     const { rows } = await pool.query(
-      'SELECT id, email, name, is_verified, verification_method FROM users WHERE phone = $1',
+      'SELECT id, email, name, is_verified, verification_method, is_admin, session_version FROM users WHERE phone = $1',
       [result.normalized]
     );
     const user = rows[0];
     if (!user) {
-      return res.status(404).json({ error: 'No account found with that phone number.' });
+      await recordAuthAudit(req, {
+        eventType: 'AUTH_OTP_LOGIN_FAILED',
+        phone: result.normalized,
+        success: false,
+        failureCode: 'PHONE_ACCOUNT_NOT_FOUND',
+      });
+      return sendApiError(req, res, 404, 'PHONE_ACCOUNT_NOT_FOUND', 'No account found with that phone number.');
     }
 
-    setAuthCookie(res, signToken({ id: user.id, email: user.email }));
-    return res.json({ user: { id: user.id, email: user.email, name: user.name, isVerified: user.is_verified, verificationMethod: user.verification_method } });
+    await clearFailedLoginState(user.id);
+  await clearAbuseBucket('OTP_VERIFY_IP', req.ip || 'unknown');
+  await clearAbuseBucket('OTP_VERIFY_PHONE', result.normalized);
+    await issueAuthSession(req, res, user);
+    await recordAuthAudit(req, {
+      eventType: 'AUTH_OTP_LOGIN_SUCCEEDED',
+      userId: user.id,
+      email: user.email,
+      phone: result.normalized,
+      success: true,
+    });
+    return res.json({ user: serializeUser(user) });
   } catch (error) {
     console.error('Phone login failed', error);
-    return res.status(500).json({ error: 'Login failed. Please try again.' });
+    return sendApiError(req, res, 500, 'PHONE_LOGIN_FAILED', 'Login failed. Please try again.');
   }
-});
+}));
 
-app.post('/api/auth/register', registerLimiter, async (req, res) => {
-  const { email, password, name, phone, code, verificationMethod } = req.body || {};
+app.post('/api/auth/register', registerLimiter, asyncHandler(async (req, res) => {
+  const { email, password, name, phone, code, verificationMethod, acceptedTerms, acceptedPrivacy } = req.body || {};
 
   if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
+    return sendApiError(req, res, 400, 'EMAIL_PASSWORD_REQUIRED', 'Email and password are required');
   }
   if (!EMAIL_REGEX.test(email)) {
-    return res.status(400).json({ error: 'Enter a valid email address' });
+    return sendApiError(req, res, 400, 'INVALID_EMAIL', 'Enter a valid email address');
   }
   if (String(password).length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    return sendApiError(req, res, 400, 'PASSWORD_TOO_SHORT', 'Password must be at least 6 characters');
+  }
+  if (!acceptedTerms || !acceptedPrivacy) {
+    return sendApiError(req, res, 400, 'LEGAL_CONSENT_REQUIRED', 'You must accept the Terms and Privacy Policy to create an account.');
   }
 
   const normalizedEmail = email.trim().toLowerCase();
@@ -3518,12 +5252,12 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
 
   if (usingSms) {
     if (!phone || !code) {
-      return res.status(400).json({ error: 'Enter the SMS code sent to your phone.' });
+      return sendApiError(req, res, 400, 'SMS_CODE_REQUIRED', 'Enter the SMS code sent to your phone.');
     }
 
     const otpResult = await verifyOtp(pool, phone, code);
     if (!otpResult.success) {
-      return res.status(400).json({ error: otpResult.message });
+      return sendApiError(req, res, 400, 'OTP_VERIFICATION_FAILED', otpResult.message);
     }
 
     normalizedPhone = otpResult.normalized;
@@ -3532,72 +5266,243 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
   try {
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
     if (existing.rows.length) {
-      return res.status(409).json({ error: 'An account with that email already exists' });
+      return sendApiError(req, res, 409, 'EMAIL_ALREADY_REGISTERED', 'An account with that email already exists');
     }
 
     if (normalizedPhone) {
       const existingPhone = await pool.query('SELECT id FROM users WHERE phone = $1', [normalizedPhone]);
       if (existingPhone.rows.length) {
-        return res.status(409).json({ error: 'An account with that phone number already exists' });
+        return sendApiError(req, res, 409, 'PHONE_ALREADY_REGISTERED', 'An account with that phone number already exists');
       }
     }
 
     const passwordHash = await hashPassword(password);
     const { rows } = await pool.query(
-      'INSERT INTO users (email, password_hash, name, phone, is_verified, verification_method) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, name, phone, is_verified, verification_method',
+      'INSERT INTO users (email, password_hash, name, phone, is_verified, verification_method, last_login_at) VALUES ($1, $2, $3, $4, $5, $6, now()) RETURNING id, email, name, phone, is_verified, verification_method, is_admin, session_version',
       [normalizedEmail, passwordHash, (name || '').trim() || 'Vinscope User', normalizedPhone, true, usingSms ? 'sms' : 'email']
     );
 
     const user = rows[0];
-    setAuthCookie(res, signToken({ id: user.id, email: user.email }));
-    return res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, phone: user.phone, isVerified: user.is_verified, verificationMethod: user.verification_method } });
+    await recordUserConsent({
+      userId: user.id,
+      policyVersion: LEGAL_POLICY_VERSION,
+      acceptedTerms: true,
+      acceptedPrivacy: true,
+      source: 'register',
+      req,
+    });
+    await issueAuthSession(req, res, user);
+    await recordAuthAudit(req, {
+      eventType: 'AUTH_REGISTER_SUCCEEDED',
+      userId: user.id,
+      email: user.email,
+      phone: user.phone || null,
+      success: true,
+    });
+    return res.status(201).json({ user: serializeUser(user) });
   } catch (error) {
     console.error('Registration failed', error);
-    return res.status(500).json({ error: 'Registration failed. Please try again.' });
+    return sendApiError(req, res, 500, 'REGISTRATION_FAILED', 'Registration failed. Please try again.');
   }
-});
+}));
 
-app.post('/api/auth/login', loginLimiter, async (req, res) => {
+app.post('/api/auth/login', loginLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body || {};
+  const loginIp = req.ip || 'unknown';
+
+  const ipLock = await ensureAbuseNotLocked(req, res, 'LOGIN_IP', loginIp, 'LOGIN_IP_BACKOFF', 'Too many failed login attempts from this network. Please try again later.');
+  if (ipLock) return ipLock;
 
   if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
+    return sendApiError(req, res, 400, 'EMAIL_PASSWORD_REQUIRED', 'Email and password are required');
   }
 
   const normalizedEmail = email.trim().toLowerCase();
 
   try {
     const { rows } = await pool.query(
-      'SELECT id, email, name, password_hash, is_verified, verification_method FROM users WHERE email = $1',
+      'SELECT id, email, name, password_hash, is_verified, verification_method, is_admin, failed_login_attempts, locked_until, session_version FROM users WHERE email = $1',
       [normalizedEmail]
     );
     const user = rows[0];
+
+    if (user && isFutureDate(user.locked_until)) {
+      await recordAuthAudit(req, {
+        eventType: 'AUTH_ACCOUNT_LOCKED',
+        userId: user.id,
+        email: user.email,
+        success: false,
+        failureCode: 'ACCOUNT_LOCKED',
+        details: { lockedUntil: user.locked_until },
+      });
+      return sendApiError(req, res, 423, 'ACCOUNT_LOCKED', 'Too many failed login attempts. Please try again later.', {
+        lockedUntil: user.locked_until,
+      });
+    }
+
     const valid = user && (await verifyPassword(password, user.password_hash));
 
     if (!valid) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      if (user) {
+        const failedState = await recordFailedLoginAttempt(user.id);
+        if (failedState && isFutureDate(failedState.locked_until)) {
+          await recordAuthAudit(req, {
+            eventType: 'AUTH_ACCOUNT_LOCKED',
+            userId: user.id,
+            email: user.email,
+            success: false,
+            failureCode: 'ACCOUNT_LOCKED',
+            details: { lockedUntil: failedState.locked_until },
+          });
+          return sendApiError(req, res, 423, 'ACCOUNT_LOCKED', 'Too many failed login attempts. Please try again later.', {
+            lockedUntil: failedState.locked_until,
+          });
+        }
+      }
+
+      const ipFailure = await registerAbuseAttempt('LOGIN_IP', loginIp, {
+        threshold: LOGIN_IP_MAX_FAILURES,
+        windowMinutes: LOGIN_IP_WINDOW_MINUTES,
+        lockoutMinutes: LOGIN_IP_LOCKOUT_MINUTES,
+      });
+      if (ipFailure.blocked) {
+        return sendApiError(req, res, 429, 'LOGIN_IP_BACKOFF', 'Too many failed login attempts from this network. Please try again later.', { lockedUntil: ipFailure.lockedUntil });
+      }
+
+      await recordAuthAudit(req, {
+        eventType: 'AUTH_LOGIN_FAILED',
+        userId: user?.id || null,
+        email: normalizedEmail,
+        success: false,
+        failureCode: 'INVALID_CREDENTIALS',
+      });
+      return sendApiError(req, res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password');
     }
 
-    setAuthCookie(res, signToken({ id: user.id, email: user.email }));
-    return res.json({ user: { id: user.id, email: user.email, name: user.name, isVerified: user.is_verified, verificationMethod: user.verification_method } });
+    await clearFailedLoginState(user.id);
+    await clearAbuseBucket('LOGIN_IP', loginIp);
+    await issueAuthSession(req, res, user);
+    await recordAuthAudit(req, {
+      eventType: 'AUTH_LOGIN_SUCCEEDED',
+      userId: user.id,
+      email: user.email,
+      success: true,
+    });
+    return res.json({ user: serializeUser(user) });
   } catch (error) {
     console.error('Login failed', error);
-    return res.status(500).json({ error: 'Login failed. Please try again.' });
+    return sendApiError(req, res, 500, 'LOGIN_FAILED', 'Login failed. Please try again.');
   }
-});
+}));
 
-app.post('/api/auth/logout', (_req, res) => {
-  clearAuthCookie(res);
+app.post('/api/auth/logout', requireAuth, asyncHandler(async (req, res) => {
+  await revokeRefreshSessionByToken(req.cookies?.[REFRESH_COOKIE_NAME], 'manual_logout');
+  clearAuthCookies(res);
+  await recordAuthAudit(req, {
+    eventType: 'AUTH_LOGOUT_SUCCEEDED',
+    userId: req.user.id,
+    email: req.user.email || null,
+    success: true,
+  });
   res.json({ ok: true });
-});
+}));
 
-app.get('/api/auth/me', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT id, email, name, is_verified, verification_method FROM users WHERE id = $1', [req.user.id]);
-  if (!rows[0]) {
-    return res.status(404).json({ error: 'User not found' });
+app.post('/api/auth/logout-all', requireAuth, asyncHandler(async (req, res) => {
+  await revokeUserSessions(req.user.id);
+  await revokeAllRefreshSessionsForUser(req.user.id);
+  clearAuthCookies(res);
+  await recordAuthAudit(req, {
+    eventType: 'AUTH_LOGOUT_ALL_SUCCEEDED',
+    userId: req.user.id,
+    email: req.user.email || null,
+    success: true,
+  });
+  res.json({ ok: true });
+}));
+
+app.post('/api/auth/refresh', asyncHandler(async (req, res) => {
+  const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  if (!refreshToken) {
+    clearAuthCookies(res);
+    await recordAuthAudit(req, {
+      eventType: 'AUTH_REFRESH_FAILED',
+      success: false,
+      failureCode: 'REFRESH_TOKEN_REQUIRED',
+    });
+    return sendApiError(req, res, 401, 'REFRESH_TOKEN_REQUIRED', 'Refresh token is required.');
   }
-  res.json({ user: rows[0] });
-});
+
+  const result = await rotateRefreshSession(req, res, refreshToken);
+  if (!result.ok) {
+    clearAuthCookies(res);
+    await recordAuthAudit(req, {
+      eventType: result.code === 'REFRESH_TOKEN_REUSED' ? 'AUTH_REFRESH_REUSED' : 'AUTH_REFRESH_FAILED',
+      userId: result.userId || null,
+      success: false,
+      failureCode: result.code,
+    });
+    return sendApiError(req, res, 401, result.code, result.message);
+  }
+
+  await recordAuthAudit(req, {
+    eventType: 'AUTH_REFRESH_SUCCEEDED',
+    userId: result.user.id,
+    email: result.user.email,
+    success: true,
+  });
+  return res.json({ user: result.user });
+}));
+
+app.get('/api/auth/me', requireAuth, asyncHandler(async (req, res) => {
+  const { rows } = await pool.query('SELECT id, email, name, is_verified, verification_method, is_admin FROM users WHERE id = $1', [req.user.id]);
+  if (!rows[0]) {
+    return sendApiError(req, res, 404, 'USER_NOT_FOUND', 'User not found');
+  }
+  res.json({ user: serializeUser(rows[0]) });
+}));
+
+app.get('/api/auth/data-export', requireAuth, asyncHandler(async (req, res) => {
+  const bundle = await exportUserDataBundle(req.user.id);
+  res.json(bundle);
+}));
+
+app.post('/api/auth/data-deletion-request', requireAuth, asyncHandler(async (req, res) => {
+  const reason = String(req.body?.reason || '').trim() || null;
+  const queued = await queueDeletionRequest({
+    userId: req.user.id,
+    email: req.user.email || null,
+    reason,
+    req,
+  });
+
+  await revokeUserSessions(req.user.id);
+  await revokeAllRefreshSessionsForUser(req.user.id);
+  clearAuthCookies(res);
+
+  await recordAuthAudit(req, {
+    eventType: 'AUTH_DATA_DELETION_REQUESTED',
+    userId: req.user.id,
+    email: req.user.email || null,
+    success: true,
+    details: { requestId: queued?.id || null },
+  });
+
+  res.status(202).json({
+    ok: true,
+    request: queued,
+    message: 'Your data deletion request has been received and queued for compliance processing.',
+  });
+}));
+
+app.get('/api/auth/sessions', requireAuth, asyncHandler(async (req, res) => {
+  const payload = await getUserSessions(req.user.id, req.cookies?.[REFRESH_COOKIE_NAME], req.query || {});
+  res.json(payload);
+}));
+
+app.get('/api/admin/sessions', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const payload = await getAdminSessions(req.query || {});
+  res.json(payload);
+}));
 
 // ---------------------------------------------------------------------------
 // Saved reports (per authenticated user)
@@ -3605,18 +5510,18 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 
 const REPORT_COLUMNS = `vin, make, model, year, status, theft, ownership, accidents, mileage, score, photo, saved_at AS "savedAt", selected_for_comparison AS "selectedForComparison"`;
 
-app.get('/api/reports', requireAuth, async (req, res) => {
+app.get('/api/reports', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT ${REPORT_COLUMNS} FROM saved_reports WHERE user_id = $1 ORDER BY saved_at DESC`,
     [req.user.id]
   );
   res.json(rows.map((row) => withDerivedScore(row)));
-});
+}));
 
-app.post('/api/reports', requireAuth, async (req, res) => {
+app.post('/api/reports', requireAuth, asyncHandler(async (req, res) => {
   const report = req.body || {};
   if (!report.vin) {
-    return res.status(400).json({ error: 'VIN is required' });
+    return sendApiError(req, res, 400, 'VIN_REQUIRED', 'VIN is required');
   }
 
   const calculatedScore = calculateVehicleScore({
@@ -3654,28 +5559,28 @@ app.post('/api/reports', requireAuth, async (req, res) => {
   );
 
   res.status(201).json(withDerivedScore(rows[0]));
-});
+}));
 
-app.delete('/api/reports/:vin', requireAuth, async (req, res) => {
+app.delete('/api/reports/:vin', requireAuth, asyncHandler(async (req, res) => {
   await pool.query('DELETE FROM saved_reports WHERE user_id = $1 AND vin = $2', [
     req.user.id,
     req.params.vin.toUpperCase(),
   ]);
   res.json({ ok: true });
-});
+}));
 
-app.patch('/api/reports/:vin/comparison', requireAuth, async (req, res) => {
+app.patch('/api/reports/:vin/comparison', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
     `UPDATE saved_reports SET selected_for_comparison = $1 WHERE user_id = $2 AND vin = $3 RETURNING ${REPORT_COLUMNS}`,
     [Boolean(req.body?.selected), req.user.id, req.params.vin.toUpperCase()]
   );
 
   if (!rows[0]) {
-    return res.status(404).json({ error: 'Saved report not found' });
+    return sendApiError(req, res, 404, 'SAVED_REPORT_NOT_FOUND', 'Saved report not found');
   }
 
   res.json(withDerivedScore(rows[0]));
-});
+}));
 
 // ---------------------------------------------------------------------------
 // M-Pesa payments (Daraja STK Push)
@@ -3683,17 +5588,17 @@ app.patch('/api/reports/:vin/comparison', requireAuth, async (req, res) => {
 
 const PLAN_AMOUNTS = { Starter: 0, Pro: 1500, Business: 2999 };
 
-app.post('/api/payments/stkpush', requireAuth, async (req, res) => {
+app.post('/api/payments/stkpush', requireAuth, asyncHandler(async (req, res) => {
   const { plan, phone } = req.body || {};
   const amount = PLAN_AMOUNTS[plan];
 
   if (!amount) {
-    return res.status(400).json({ error: 'Choose a valid plan (Pro or Business)' });
+    return sendApiError(req, res, 400, 'INVALID_PLAN', 'Choose a valid plan (Pro or Business)');
   }
 
   const normalizedPhone = normalizeKenyanPhone(phone);
   if (!normalizedPhone) {
-    return res.status(400).json({ error: 'Enter a valid Safaricom number, e.g. 07XXXXXXXX' });
+    return sendApiError(req, res, 400, 'INVALID_MPESA_PHONE', 'Enter a valid Safaricom number, e.g. 07XXXXXXXX');
   }
 
   const publicBaseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
@@ -3720,16 +5625,22 @@ app.post('/api/payments/stkpush', requireAuth, async (req, res) => {
   } catch (error) {
     const diagnostics = error.mpesaDiagnostics || null;
     console.error('STK push failed', diagnostics || error);
-    return res.status(502).json({
-      error: error.message || 'Could not start M-Pesa payment',
-      diagnostics,
-      hint: 'Verify Daraja credentials, shortcode/passkey, callback URL, and Safaricom number format.',
-    });
+    return sendApiError(
+      req,
+      res,
+      502,
+      'MPESA_STK_PUSH_FAILED',
+      error.message || 'Could not start M-Pesa payment',
+      {
+        diagnostics,
+        hint: 'Verify Daraja credentials, shortcode/passkey, callback URL, and Safaricom number format.',
+      }
+    );
   }
-});
+}));
 
 // Public endpoint - called by Safaricom's servers, not the browser.
-app.post('/api/payments/mpesa/callback', async (req, res) => {
+app.post('/api/payments/mpesa/callback', asyncHandler(async (req, res) => {
   const result = parseStkCallback(req.body);
 
   if (result) {
@@ -3743,23 +5654,79 @@ app.post('/api/payments/mpesa/callback', async (req, res) => {
 
   // Safaricom expects a 200 response acknowledging receipt of the callback.
   res.json({ ResultCode: 0, ResultDesc: 'Accepted' });
-});
+}));
 
-app.get('/api/payments/status/:checkoutRequestId', requireAuth, async (req, res) => {
+app.get('/api/payments/status/:checkoutRequestId', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
     'SELECT status, plan, mpesa_receipt AS "mpesaReceipt" FROM subscriptions WHERE checkout_request_id = $1 AND user_id = $2',
     [req.params.checkoutRequestId, req.user.id]
   );
 
   if (!rows[0]) {
-    return res.status(404).json({ error: 'Payment not found' });
+    return sendApiError(req, res, 404, 'PAYMENT_NOT_FOUND', 'Payment not found');
   }
 
   res.json(rows[0]);
+}));
+
+app.use('/api', (req, res) => {
+  sendApiError(req, res, 404, 'API_ROUTE_NOT_FOUND', 'API route not found', {
+    method: req.method,
+    path: req.originalUrl,
+  });
 });
 
 app.get(/^(?!\/api|\/health).*/, (_req, res) => {
   res.sendFile(path.join(distDir, 'index.html'));
+});
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) {
+    return next(error);
+  }
+
+  const status = Number(error?.status) || 500;
+  const code = typeof error?.code === 'string' ? error.code : 'INTERNAL_SERVER_ERROR';
+  const message = status >= 500 ? 'Internal server error' : (error?.message || 'Request failed');
+
+  console.error(`[${req.requestId || 'no-request-id'}] Unhandled request error`, error);
+  persistErrorEvent({
+    source: 'server',
+    category: 'request_error',
+    severity: status >= 500 ? 'error' : 'warning',
+    message: error?.message || 'Unhandled request error',
+    code,
+    requestId: req.requestId || null,
+    path: req.originalUrl || req.path || null,
+    method: req.method || null,
+    userId: req.user?.id || null,
+    ipAddress: req.ip || null,
+    userAgent: req.get('user-agent') || null,
+    stack: error?.stack || null,
+    details: { status },
+  });
+  return sendApiError(req, res, status, code, message);
+});
+
+const logProcessFatal = (type, error) => {
+  console.error(`[process-fatal:${type}]`, error);
+  persistErrorEvent({
+    source: 'server',
+    category: type,
+    severity: 'critical',
+    message: error?.message || String(error),
+    code: type,
+    stack: error?.stack || null,
+    details: { reason: typeof error === 'object' ? undefined : String(error) },
+  });
+};
+
+process.on('uncaughtException', (error) => {
+  logProcessFatal('uncaughtException', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logProcessFatal('unhandledRejection', reason);
 });
 
 const port = process.env.PORT || 5000;

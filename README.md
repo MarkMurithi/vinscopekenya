@@ -12,6 +12,8 @@ A vehicle-history web app prototype with a PostgreSQL-backed backend.
    ```bash
    copy .env.example .env
    ```
+   Keep `LOCAL_DATABASE_URL` and `TEST_DATABASE_URL` pointed at local Postgres.
+   The server now refuses remote database hosts in `development` and `test` by default.
 3. Install dependencies:
    ```bash
    npm install
@@ -85,3 +87,42 @@ If callback does not arrive in local development, set `PUBLIC_BASE_URL` to a pub
 Run `npm test` against a local PostgreSQL instance (see `docker-compose up -d`). GitHub Actions
 (`.github/workflows/ci.yml`) runs the test suite and build against a fresh Postgres service
 container on every push/PR to `main`.
+
+### Database safety guardrails
+
+- `production`: requires `DATABASE_URL`.
+- `development`: uses `LOCAL_DATABASE_URL` (fallback: `DATABASE_URL`, then local default) and refuses non-local hosts unless `ALLOW_EXTERNAL_DATABASE_IN_DEV=true`.
+- `test`: uses `TEST_DATABASE_URL` (fallback: `LOCAL_DATABASE_URL`, then `DATABASE_URL`, then local default) and refuses non-local hosts unless `ALLOW_EXTERNAL_DATABASE_IN_TEST=true`.
+
+This is designed to prevent accidental writes from local development/test runs to production databases.
+
+## Auth/session hardening
+
+- Production now requires `JWT_SECRET` to be set explicitly.
+- Access tokens are now short-lived and default to 15 minutes (`ACCESS_TOKEN_TTL` / `ACCESS_TOKEN_TTL_MINUTES`).
+- Refresh tokens are stored server-side, rotated on use, and default to 30 days (`REFRESH_TOKEN_TTL_DAYS`).
+- Refresh sessions also expire after inactivity (`REFRESH_SESSION_IDLE_MINUTES`), which forces re-authentication even if the refresh token has not yet reached its absolute expiry.
+- Auth cookies default to `httpOnly` + `SameSite=Strict`.
+- In production, cookies are enforced as `secure=true` and `sameSite` must be `strict` or `lax`.
+- JWTs now include issuer/audience validation (`JWT_ISSUER`, `JWT_AUDIENCE`).
+- Password login is temporarily locked after repeated failed attempts (`LOGIN_MAX_ATTEMPTS`, `LOGIN_LOCKOUT_MINUTES`).
+- Repeated failed password attempts are also rate-limited per IP/network (`LOGIN_IP_MAX_FAILURES`, `LOGIN_IP_WINDOW_MINUTES`, `LOGIN_IP_LOCKOUT_MINUTES`).
+- OTP issuance and verification are additionally throttled per phone and per IP (`OTP_SEND_*`, `OTP_VERIFY_*`) to reduce abuse.
+- Admin-only audit log viewing is available at `GET /api/admin/audit-logs` and can be filtered by `userId`, `email`, `eventType`, `from`, `to`, and `limit`.
+- Admin-only security alert viewing is available at `GET /api/admin/security-alerts` and can be filtered by `alertType`, `severity`, `subject`, `from`, `to`, `limit`, and `offset`.
+- Admin users can be designated via the `ADMIN_EMAILS` environment variable or by setting `users.is_admin = true` directly.
+- Automatic security alerts are generated from auth audit events when repeated lockouts or refresh-token reuse cross configured thresholds (`AUTH_ALERT_WINDOW_MINUTES`, `LOCKOUT_ALERT_THRESHOLD`, `REFRESH_REUSE_ALERT_THRESHOLD`).
+- Alert severities currently map to `warning` for repeated lockouts and `critical` for refresh-token reuse.
+- Optional outbound alert hooks can be configured for generic webhooks (`AUTH_ALERT_WEBHOOK_URL`), Slack (`AUTH_ALERT_SLACK_WEBHOOK_URL`), and email via Resend (`AUTH_ALERT_EMAIL_FROM`, `AUTH_ALERT_EMAIL_TO`, `RESEND_API_KEY`).
+- Suspicious activity such as refresh-token reuse or revoked/idle-expired sessions now triggers forced logout in the frontend so stale sessions are cleared immediately.
+
+## Error reporting
+
+- Backend request crashes and process-level fatal errors are now written into the `app_error_events` table.
+- Frontend render/browser crashes are reported to `POST /api/client-errors` and stored in the same table.
+- This provides a database-backed error sink instead of relying only on console output.
+
+## Legal review workflow
+
+- Final legal approval must be completed by qualified counsel before production launch.
+- Use [LEGAL_REVIEW_PACKET.md](LEGAL_REVIEW_PACKET.md) as the counsel handoff checklist and sign-off record.

@@ -1,23 +1,36 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './index.css';
 import {
+  buildAdminAuditCsvUrl,
+  buildAdminSecurityAlertsCsvUrl,
   fetchCurrentUser,
+  getAdminAlertDeliveryLogs,
+  getAdminAuditLogs,
+  getAdminSessions,
+  getAuthSessions,
+  getAdminSecurityAlerts,
   getVehicleReports,
   loginUser,
+  logoutAllDevices,
   logoutUser,
+  exportMyData,
+  requestDataDeletion,
   registerUser,
   saveVehicleReport,
   deleteVehicleReport,
   setReportComparisonSelection,
   sendPhoneOtp,
   loginWithPhoneOtp,
+  updateAdminSecurityAlert,
+  updateAdminSecurityAlertsBulk,
 } from './services/authApi';
-import { lookupVehicleByVin, pingVehicleApi } from './services/vehicleApi';
+import { lookupVehicleByVin, pingVehicleApi, setAuthFailureHandler } from './services/vehicleApi';
 import { startMpesaPayment, getPaymentStatus } from './services/paymentsApi';
 import { buildComparisonChartData, buildIncidentRecords, buildVehicleHistorySections, filterSavedReports, getScoreTier, hashString, seededRandom } from './utils/reportUtils';
 import { generateVerificationCode, maskContact } from './utils/verificationUtils';
 import { getDefaultAnalytics, getPopularPlan, recordPlanSelection, recordVinSearch } from './utils/analyticsUtils';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ONBOARDING_STORAGE_KEY = 'vinscope-onboarding-dismissed';
 
 function IconCar(props) {
   return (
@@ -812,7 +825,7 @@ const privacyPolicySections = [
   {
     title: '5. Data Retention',
     paragraphs: [
-      'We retain account and report data for as long as your account is active, or as needed to provide our services, comply with legal obligations, resolve disputes, and enforce our agreements. You may request deletion of your account and associated data at any time.',
+      'We retain account and report data while your account is active. Authentication session records and security audit logs are retained for fraud prevention and legal/compliance obligations. You may request a full data export or submit a deletion request from your account settings at any time.',
     ],
   },
   {
@@ -824,7 +837,7 @@ const privacyPolicySections = [
   {
     title: '7. Cookies & Local Storage',
     paragraphs: [
-      "We use your browser's local storage to remember your theme preference (light or dark mode) and basic usage analytics. We do not use third-party advertising cookies.",
+      "We use first-party, httpOnly authentication cookies for secure sign-in sessions and refresh sessions. We also use your browser's local storage to remember theme preference, onboarding preference, recent searches, and basic usage analytics. We do not use third-party advertising cookies.",
     ],
   },
   {
@@ -1040,6 +1053,7 @@ function App() {
   const [verificationContact, setVerificationContact] = useState('');
   const [verificationCodeSent, setVerificationCodeSent] = useState(false);
   const [verificationError, setVerificationError] = useState('');
+  const [acceptedLegal, setAcceptedLegal] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const [phoneLoginMode, setPhoneLoginMode] = useState(false);
   const [phoneLoginPhone, setPhoneLoginPhone] = useState('');
@@ -1049,6 +1063,66 @@ function App() {
   const [savedReportSearch, setSavedReportSearch] = useState('');
   const [savedReportFilter, setSavedReportFilter] = useState('all');
   const [deletingAllSavedReports, setDeletingAllSavedReports] = useState(false);
+  const [pendingSavedReportsScroll, setPendingSavedReportsScroll] = useState(false);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
+  const [auditLogError, setAuditLogError] = useState('');
+  const [auditOffset, setAuditOffset] = useState(0);
+  const [auditPagination, setAuditPagination] = useState({ offset: 0, limit: 25, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+  const [auditFilters, setAuditFilters] = useState({
+    userId: '',
+    email: '',
+    eventType: '',
+    from: '',
+    to: '',
+    limit: 25,
+  });
+  const [securityAlerts, setSecurityAlerts] = useState([]);
+  const [loadingSecurityAlerts, setLoadingSecurityAlerts] = useState(false);
+  const [securityAlertError, setSecurityAlertError] = useState('');
+  const [securityAlertOffset, setSecurityAlertOffset] = useState(0);
+  const [securityAlertPagination, setSecurityAlertPagination] = useState({ offset: 0, limit: 25, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+  const [deliveryLogs, setDeliveryLogs] = useState([]);
+  const [loadingDeliveryLogs, setLoadingDeliveryLogs] = useState(false);
+  const [deliveryLogError, setDeliveryLogError] = useState('');
+  const [deliveryLogOffset, setDeliveryLogOffset] = useState(0);
+  const [deliveryLogPagination, setDeliveryLogPagination] = useState({ offset: 0, limit: 25, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+  const [deliveryLogFilters, setDeliveryLogFilters] = useState({ alertId: '', channel: '', success: 'false', from: '', to: '', limit: 25 });
+  const [selectedSecurityAlertIds, setSelectedSecurityAlertIds] = useState([]);
+  const [openCriticalAlertCount, setOpenCriticalAlertCount] = useState(0);
+  const [criticalOnlyMode, setCriticalOnlyMode] = useState(false);
+  const [adminFiltersEditing, setAdminFiltersEditing] = useState(false);
+  const [lastAdminRefreshAt, setLastAdminRefreshAt] = useState(null);
+  const [securityAlertFilters, setSecurityAlertFilters] = useState({
+    alertType: '',
+    severity: '',
+    status: '',
+    subject: '',
+    from: '',
+    to: '',
+    limit: 25,
+  });
+  const [userSessions, setUserSessions] = useState([]);
+  const [loadingUserSessions, setLoadingUserSessions] = useState(false);
+  const [userSessionsError, setUserSessionsError] = useState('');
+  const [userSessionPagination, setUserSessionPagination] = useState({ offset: 0, limit: 10, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+  const [adminSessions, setAdminSessions] = useState([]);
+  const [loadingAdminSessions, setLoadingAdminSessions] = useState(false);
+  const [adminSessionsError, setAdminSessionsError] = useState('');
+  const [adminSessionsOffset, setAdminSessionsOffset] = useState(0);
+  const [adminSessionsPagination, setAdminSessionsPagination] = useState({ offset: 0, limit: 25, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+  const [adminSessionFilters, setAdminSessionFilters] = useState({ userId: '', email: '', status: '', limit: 25 });
+  const [sessionWarningSecondsRemaining, setSessionWarningSecondsRemaining] = useState(null);
+  const lastUserActivityAtRef = useRef(Date.now());
+  const [onboardingRearmPending, setOnboardingRearmPending] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      return window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== 'true';
+    } catch {
+      return true;
+    }
+  });
   const [analytics, setAnalytics] = useState(() => {
     if (typeof window === 'undefined') return getDefaultAnalytics();
     try {
@@ -1098,6 +1172,58 @@ function App() {
     }
   };
 
+  const dismissOnboarding = () => {
+    setShowOnboarding(false);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(ONBOARDING_STORAGE_KEY, 'true');
+      } catch {
+        // Ignore storage failures and just hide for this session.
+      }
+    }
+  };
+
+  const showOnboardingAgain = () => {
+    setOnboardingRearmPending(true);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+      } catch {
+        // Ignore storage failures and show onboarding for this session.
+      }
+    }
+    setMessage('Onboarding will reappear when you open the report or admin view.');
+  };
+
+  const onboardingContent = useMemo(() => {
+    if (view === 'report') {
+      return {
+        title: 'How to read this report',
+        body: 'The score starts at 100 and drops when theft records, accident history, mileage inconsistencies, or many previous owners increase risk. Focus on both the score and the detailed incident sections before deciding.',
+      };
+    }
+
+    if (view === 'admin') {
+      return {
+        title: 'Admin quick orientation',
+        body: 'Use Audit Logs to trace auth events, Security Alerts to triage suspicious activity, and Delivery Logs to investigate failed notification attempts. Resolve or reopen alerts as investigation progresses.',
+      };
+    }
+
+    return {
+      title: 'First time here?',
+      body: 'Start with a full 17-character VIN from the logbook, chassis plate, windshield tag, or import paperwork. You can also explore the score using the sample report below.',
+    };
+  }, [view]);
+
+  useEffect(() => {
+    if (!onboardingRearmPending) return;
+    if (view !== 'report' && view !== 'admin') return;
+
+    setShowOnboarding(true);
+    setOnboardingRearmPending(false);
+  }, [onboardingRearmPending, view]);
+
   const goToSection = (id) => {
     setView('home');
     requestAnimationFrame(() => {
@@ -1113,14 +1239,94 @@ function App() {
     setView('account');
   };
 
+  const clearLocalAuthState = (nextMessage, nextView = 'account') => {
+    setUser(null);
+    setSavedReports([]);
+    setUserSessions([]);
+    setSessionWarningSecondsRemaining(null);
+    setMessage(nextMessage);
+    setAuthMode('login');
+    setView(nextView);
+  };
+
+  const getSessionFailureMessage = (failure) => {
+    if (failure?.code === 'REFRESH_SESSION_IDLE_EXPIRED') {
+      return 'Your session expired due to inactivity. Please sign in again.';
+    }
+
+    if (failure?.code === 'SESSION_REVOKED' || failure?.code === 'REFRESH_TOKEN_REUSED') {
+      return 'Your session was revoked for security reasons. Please sign in again.';
+    }
+
+    return failure?.message || 'Your session ended. Please sign in again.';
+  };
+
+  useEffect(() => {
+    setAuthFailureHandler((failure) => {
+      clearLocalAuthState(getSessionFailureMessage(failure));
+    });
+
+    return () => {
+      setAuthFailureHandler(null);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const markActivity = () => {
+      lastUserActivityAtRef.current = Date.now();
+      setSessionWarningSecondsRemaining(null);
+    };
+
+    markActivity();
+    const activityEvents = ['click', 'keydown', 'mousemove', 'scroll', 'touchstart'];
+    for (const eventName of activityEvents) {
+      window.addEventListener(eventName, markActivity, { passive: true });
+    }
+
+    const intervalId = window.setInterval(() => {
+      const idleTimeoutMinutes = Number(user.sessionIdleTimeoutMinutes || 0);
+      if (!idleTimeoutMinutes) return;
+
+      const remainingSeconds = Math.max(0, Math.round((idleTimeoutMinutes * 60 * 1000 - (Date.now() - lastUserActivityAtRef.current)) / 1000));
+      if (remainingSeconds <= 60) {
+        setSessionWarningSecondsRemaining(remainingSeconds);
+      }
+
+      if (remainingSeconds === 0) {
+        window.clearInterval(intervalId);
+        logoutUser();
+        clearLocalAuthState('Your session expired due to inactivity. Please sign in again.');
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      for (const eventName of activityEvents) {
+        window.removeEventListener(eventName, markActivity);
+      }
+    };
+  }, [user]);
+
   const openSavedReports = () => {
     if (!user) {
       openAuth('login');
       setMessage('Sign in to access your saved reports.');
       return;
     }
+    setPendingSavedReportsScroll(true);
     setView('account');
   };
+
+  useEffect(() => {
+    if (!pendingSavedReportsScroll || view !== 'account') return;
+
+    requestAnimationFrame(() => {
+      document.getElementById('saved-reports-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setPendingSavedReportsScroll(false);
+    });
+  }, [pendingSavedReportsScroll, view]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1153,6 +1359,297 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (view !== 'account' || !user) return undefined;
+
+    let cancelled = false;
+    setLoadingUserSessions(true);
+    setUserSessionsError('');
+
+    getAuthSessions({ limit: userSessionPagination.limit, offset: userSessionPagination.offset })
+      .then((payload) => {
+        if (cancelled) return;
+        setUserSessions(payload.sessions || []);
+        setUserSessionPagination(payload.pagination || { offset: 0, limit: 10, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setUserSessionsError(error.message || 'Could not load your active sessions right now.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingUserSessions(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [view, user, userSessionPagination.offset, userSessionPagination.limit]);
+
+  useEffect(() => {
+    if (view !== 'admin' || !user?.isAdmin) return undefined;
+
+    let cancelled = false;
+    setLoadingAdminSessions(true);
+    setAdminSessionsError('');
+
+    getAdminSessions({ ...adminSessionFilters, offset: adminSessionsOffset })
+      .then((payload) => {
+        if (cancelled) return;
+        setAdminSessions(payload.sessions || []);
+        setAdminSessionsPagination(payload.pagination || { offset: adminSessionsOffset, limit: adminSessionFilters.limit, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setAdminSessionsError(error.message || 'Could not load session activity right now.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAdminSessions(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [view, user?.isAdmin, adminSessionsOffset, adminSessionFilters]);
+
+  useEffect(() => {
+    if (view !== 'admin' || !user?.isAdmin) return undefined;
+
+    let cancelled = false;
+    setLoadingAuditLogs(true);
+    setAuditLogError('');
+
+    getAdminAuditLogs({ ...auditFilters, offset: auditOffset })
+      .then((payload) => {
+        if (cancelled) return;
+        setAuditLogs(payload.logs || []);
+        setAuditPagination(payload.pagination || { offset: auditOffset, limit: auditFilters.limit, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+        setLastAdminRefreshAt(Date.now());
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setAuditLogError(error.message || 'Could not load audit logs right now.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAuditLogs(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [view, user?.isAdmin, auditOffset, auditFilters]);
+
+  useEffect(() => {
+    if (view !== 'admin' || !user?.isAdmin) return undefined;
+
+    let cancelled = false;
+    setLoadingSecurityAlerts(true);
+    setSecurityAlertError('');
+
+    getAdminSecurityAlerts({ ...securityAlertFilters, offset: securityAlertOffset })
+      .then((payload) => {
+        if (cancelled) return;
+        setSecurityAlerts(payload.alerts || []);
+        setSecurityAlertPagination(payload.pagination || { offset: securityAlertOffset, limit: securityAlertFilters.limit, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+        setLastAdminRefreshAt(Date.now());
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setSecurityAlertError(error.message || 'Could not load security alerts right now.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSecurityAlerts(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [view, user?.isAdmin, securityAlertOffset, securityAlertFilters]);
+
+  useEffect(() => {
+    if (!user?.isAdmin) return undefined;
+
+    let cancelled = false;
+    getAdminSecurityAlerts({ severity: 'critical', status: 'open', limit: 1, offset: 0 })
+      .then((payload) => {
+        if (cancelled) return;
+        setOpenCriticalAlertCount(payload.pagination?.total || 0);
+      })
+      .catch(() => {
+        if (!cancelled) setOpenCriticalAlertCount(0);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.isAdmin, securityAlerts]);
+
+  useEffect(() => {
+    if (view !== 'admin' || !user?.isAdmin) return undefined;
+
+    let cancelled = false;
+    setLoadingDeliveryLogs(true);
+    setDeliveryLogError('');
+
+    getAdminAlertDeliveryLogs({ ...deliveryLogFilters, offset: deliveryLogOffset })
+      .then((payload) => {
+        if (cancelled) return;
+        setDeliveryLogs(payload.logs || []);
+        setDeliveryLogPagination(payload.pagination || { offset: deliveryLogOffset, limit: deliveryLogFilters.limit, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+        setLastAdminRefreshAt(Date.now());
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setDeliveryLogError(error.message || 'Could not load alert delivery logs right now.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDeliveryLogs(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [view, user?.isAdmin, deliveryLogOffset, deliveryLogFilters]);
+
+  useEffect(() => {
+    if (!user?.isAdmin) return undefined;
+
+    const refreshCriticalBadge = () => {
+      getAdminSecurityAlerts({ severity: 'critical', status: 'open', limit: 1, offset: 0 })
+        .then((payload) => setOpenCriticalAlertCount(payload.pagination?.total || 0))
+        .catch(() => setOpenCriticalAlertCount(0));
+    };
+
+    refreshCriticalBadge();
+    const intervalId = window.setInterval(refreshCriticalBadge, 45000);
+    return () => window.clearInterval(intervalId);
+  }, [user?.isAdmin]);
+
+  useEffect(() => {
+    if (view !== 'admin' || !user?.isAdmin) return undefined;
+    if (adminFiltersEditing) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      getAdminAuditLogs({ ...auditFilters, offset: auditOffset })
+        .then((payload) => {
+          setAuditLogs(payload.logs || []);
+          setAuditPagination(payload.pagination || { offset: auditOffset, limit: auditFilters.limit, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+          setLastAdminRefreshAt(Date.now());
+        })
+        .catch(() => {});
+
+      getAdminSecurityAlerts({ ...securityAlertFilters, offset: securityAlertOffset })
+        .then((payload) => {
+          setSecurityAlerts(payload.alerts || []);
+          setSecurityAlertPagination(payload.pagination || { offset: securityAlertOffset, limit: securityAlertFilters.limit, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+          setLastAdminRefreshAt(Date.now());
+        })
+        .catch(() => {});
+
+      getAdminAlertDeliveryLogs({ ...deliveryLogFilters, offset: deliveryLogOffset })
+        .then((payload) => {
+          setDeliveryLogs(payload.logs || []);
+          setDeliveryLogPagination(payload.pagination || { offset: deliveryLogOffset, limit: deliveryLogFilters.limit, total: 0, hasMore: false, nextOffset: null, previousOffset: null });
+          setLastAdminRefreshAt(Date.now());
+        })
+        .catch(() => {});
+    }, 45000);
+
+    return () => window.clearInterval(intervalId);
+  }, [view, user?.isAdmin, adminFiltersEditing, auditFilters, auditOffset, securityAlertFilters, securityAlertOffset, deliveryLogFilters, deliveryLogOffset]);
+
+  useEffect(() => {
+    if (!adminFiltersEditing) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      setAdminFiltersEditing(false);
+    }, 1200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [adminFiltersEditing, auditFilters, securityAlertFilters, deliveryLogFilters]);
+
+  const updateAuditFilter = (key, value) => {
+    setAdminFiltersEditing(true);
+    setAuditOffset(0);
+    setAuditFilters((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateSecurityAlertFilter = (key, value) => {
+    setAdminFiltersEditing(true);
+    setSecurityAlertOffset(0);
+    setSecurityAlertFilters((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateDeliveryLogFilter = (key, value) => {
+    setAdminFiltersEditing(true);
+    setDeliveryLogOffset(0);
+    setDeliveryLogFilters((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateAdminSessionFilter = (key, value) => {
+    setAdminSessionsOffset(0);
+    setAdminSessionFilters((current) => ({ ...current, [key]: value }));
+  };
+
+  const toggleCriticalOnlyFilter = () => {
+    setSecurityAlertOffset(0);
+    setCriticalOnlyMode((current) => {
+      const next = !current;
+      setSecurityAlertFilters((filters) => ({
+        ...filters,
+        severity: next ? 'critical' : '',
+        status: next ? 'open' : filters.status === 'open' ? '' : filters.status,
+      }));
+      return next;
+    });
+    setView('admin');
+  };
+
+  const exportAuditLogsCsv = () => {
+    if (typeof window === 'undefined') return;
+    const exportUrl = buildAdminAuditCsvUrl({ ...auditFilters, offset: auditOffset, limit: auditFilters.limit });
+    window.open(exportUrl, '_blank', 'noopener');
+  };
+
+  const exportSecurityAlertsCsv = () => {
+    if (typeof window === 'undefined') return;
+    const exportUrl = buildAdminSecurityAlertsCsvUrl({ ...securityAlertFilters, offset: securityAlertOffset, limit: securityAlertFilters.limit });
+    window.open(exportUrl, '_blank', 'noopener');
+  };
+
+  const markSecurityAlert = async (id, action) => {
+    const note = action === 'resolve' && typeof window !== 'undefined'
+      ? window.prompt('Optional resolution note', '')
+      : undefined;
+
+    try {
+      const payload = await updateAdminSecurityAlert(id, action, note);
+      setSecurityAlerts((current) => current.map((entry) => (entry.id === id ? payload.alert : entry)));
+      setSelectedSecurityAlertIds((current) => current.filter((entryId) => entryId !== id));
+    } catch (error) {
+      setSecurityAlertError(error.message || 'Could not update the security alert.');
+    }
+  };
+
+  const toggleSecurityAlertSelection = (id) => {
+    setSelectedSecurityAlertIds((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
+  };
+
+  const bulkUpdateSecurityAlerts = async (action) => {
+    if (!selectedSecurityAlertIds.length) return;
+    const note = action === 'resolve' && typeof window !== 'undefined'
+      ? window.prompt('Optional resolution note for selected alerts', '')
+      : undefined;
+
+    try {
+      const payload = await updateAdminSecurityAlertsBulk(selectedSecurityAlertIds, action, note);
+      const updatedById = new Map((payload.alerts || []).map((entry) => [entry.id, entry]));
+      setSecurityAlerts((current) => current.map((entry) => updatedById.get(entry.id) || entry));
+      setSelectedSecurityAlertIds([]);
+    } catch (error) {
+      setSecurityAlertError(error.message || 'Could not bulk update the selected alerts.');
+    }
+  };
 
   const sendVerificationCode = async () => {
     if (verificationMethod === 'sms') {
@@ -1218,7 +1715,9 @@ function App() {
       name || 'New Buyer',
       isSms ? verificationContact : undefined,
       isSms ? codeInput.trim() : undefined,
-      isSms ? 'sms' : 'email'
+      isSms ? 'sms' : 'email',
+      acceptedLegal,
+      acceptedLegal
     );
     if (!result.success) {
       setVerificationError(isSms ? result.message : '');
@@ -1298,6 +1797,7 @@ function App() {
     const errors = {};
     if (!EMAIL_REGEX.test(email)) errors.email = 'Enter a valid email address.';
     if (authMode === 'register' && password.length < 6) errors.password = 'Password must be at least 6 characters.';
+    if (authMode === 'register' && !acceptedLegal) errors.legal = 'You must accept the Terms and Privacy Policy.';
     if (!password) errors.password = errors.password || 'Password is required.';
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
@@ -1326,10 +1826,43 @@ function App() {
 
   const handleLogout = async () => {
     await logoutUser();
-    setUser(null);
-    setSavedReports([]);
-    setMessage('You have been signed out.');
-    setView('home');
+    clearLocalAuthState('You have been signed out.', 'home');
+  };
+
+  const handleLogoutAllDevices = async () => {
+    await logoutAllDevices();
+    clearLocalAuthState('You have been signed out on all devices.', 'home');
+  };
+
+  const handleDataExport = async () => {
+    try {
+      const payload = await exportMyData();
+      if (typeof window !== 'undefined') {
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `vinscope-data-export-${Date.now()}.json`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      }
+      setMessage('Your data export is ready and has been downloaded.');
+    } catch (error) {
+      setMessage(error.message || 'Could not export your data right now.');
+    }
+  };
+
+  const handleRequestDataDeletion = async () => {
+    const reason = typeof window !== 'undefined'
+      ? window.prompt('Optional reason for deletion request', '')
+      : '';
+
+    try {
+      await requestDataDeletion(reason || '');
+      clearLocalAuthState('Your deletion request has been received. You have been signed out.', 'home');
+    } catch (error) {
+      setMessage(error.message || 'Could not submit your deletion request right now.');
+    }
   };
 
 
@@ -1757,6 +2290,15 @@ function App() {
           <button onClick={() => goToSection('how-it-works')}>How It Works</button>
           <button onClick={() => goToSection('features')}>Features</button>
           <button onClick={() => setView('compare')}>Compare</button>
+          <button className={view === 'account' ? 'active' : ''} onClick={openSavedReports}>
+            {user ? `Saved Reports${savedReports.length ? ` (${savedReports.length})` : ''}` : 'Saved Reports'}
+          </button>
+          {user?.isAdmin && (
+            <div className="admin-nav-item">
+              <button className={view === 'admin' ? 'active' : ''} onClick={() => setView('admin')}>Audit Logs</button>
+              {openCriticalAlertCount > 0 && <span className="admin-alert-badge">{openCriticalAlertCount}</span>}
+            </div>
+          )}
           <button onClick={() => goToSection('faq')}>FAQ</button>
           <button onClick={openContactPage}>Contact</button>
         </nav>
@@ -1784,6 +2326,12 @@ function App() {
         </div>
       </header>
 
+      {user && sessionWarningSecondsRemaining != null && sessionWarningSecondsRemaining > 0 && (
+        <div className="session-warning-banner">
+          Your session will expire due to inactivity in {sessionWarningSecondsRemaining}s.
+        </div>
+      )}
+
       <main className="page">
         <div key={view} className="view-transition">
         {view === 'home' && (
@@ -1796,6 +2344,15 @@ function App() {
                     Enter any VIN to instantly uncover accident records, theft alerts, ownership history, and mileage
                     accuracy before you buy or sell in Kenya.
                   </p>
+                  {showOnboarding && (
+                    <div className="onboarding-banner">
+                      <div>
+                        <strong>{onboardingContent.title}</strong>
+                        <p>{onboardingContent.body}</p>
+                      </div>
+                      <button className="btn-outline-white small" type="button" onClick={dismissOnboarding}>Got it</button>
+                    </div>
+                  )}
                   <form className="hero-search" onSubmit={handleLookup}>
                     <input
                       value={vinInput}
@@ -2343,6 +2900,21 @@ function App() {
                   </div>
                 </div>
               </div>
+              {showOnboarding && (
+                <div className="score-onboarding-grid">
+                  <div className="detail-card ok">
+                    <h3>What to search</h3>
+                    <p>Use a 17-character VIN. The best sources are the NTSA logbook, import documents, dashboard plate, or the lower windshield label.</p>
+                  </div>
+                  <div className="detail-card neutral">
+                    <h3>What the score means</h3>
+                    <p>The score starts at 100 and drops when theft records, accident history, mileage inconsistencies, or many previous owners increase the vehicle's risk profile.</p>
+                  </div>
+                  <div className="onboarding-dismiss-wrap">
+                    <button type="button" className="btn-outline small" onClick={dismissOnboarding}>Dismiss onboarding</button>
+                  </div>
+                </div>
+              )}
               {loadingVehicle ? (
                 <div className="skeleton-stack">
                   <div className="skeleton-line w-70" />
@@ -2738,6 +3310,17 @@ function App() {
                 )}
                 <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="Password" />
                 {formErrors.password && <p className="field-error">{formErrors.password}</p>}
+                {authMode === 'register' && (
+                  <label className="legal-consent-row">
+                    <input
+                      type="checkbox"
+                      checked={acceptedLegal}
+                      onChange={(event) => setAcceptedLegal(event.target.checked)}
+                    />
+                    I agree to the Terms of Service and Privacy Policy.
+                  </label>
+                )}
+                {formErrors.legal && <p className="field-error">{formErrors.legal}</p>}
                 {authMode === 'register' && verificationStep === 'verify' && (
                   <input value={codeInput} onChange={(event) => setCodeInput(event.target.value)} placeholder="Enter verification code" />
                 )}
@@ -2792,8 +3375,13 @@ function App() {
                 <li>Track report history</li>
                 <li>Receive alerts for risk changes</li>
               </ul>
+              <p className="onboarding-reset-link-wrap">
+                <button type="button" className="onboarding-reset-link" onClick={showOnboardingAgain}>
+                  Show onboarding again
+                </button>
+              </p>
               {user && (
-                <div className="saved-list">
+                <div className="saved-list" id="saved-reports-section">
                   <div className="saved-report-toolbar">
                     <input
                       value={savedReportSearch}
@@ -2843,6 +3431,478 @@ function App() {
                   )}
                 </div>
               )}
+
+              {user && (
+                <div className="admin-audit-panel account-session-panel">
+                  <div className="saved-report-heading">
+                    <h4>Active sessions</h4>
+                    <button className="btn-outline small" onClick={handleLogoutAllDevices}>Sign out of all devices</button>
+                  </div>
+
+                  {userSessionsError && <p className="field-error">{userSessionsError}</p>}
+
+                  {loadingUserSessions ? (
+                    <div className="skeleton-stack">
+                      {Array.from({ length: 3 }).map((_, index) => <div key={index} className="skeleton-line" />)}
+                    </div>
+                  ) : userSessions.length === 0 ? (
+                    <div className="empty-state">
+                      <strong>No active sessions found</strong>
+                      <p>Your recent session activity will appear here.</p>
+                    </div>
+                  ) : (
+                    <div className="audit-table-wrap">
+                      <table className="audit-table">
+                        <thead>
+                          <tr>
+                            <th>Current</th>
+                            <th>Created</th>
+                            <th>Last used</th>
+                            <th>Status</th>
+                            <th>Device</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {userSessions.map((session) => (
+                            <tr key={session.id}>
+                              <td>{session.isCurrent ? 'This device' : 'Other device'}</td>
+                              <td>{new Date(session.createdAt).toLocaleString()}</td>
+                              <td>{session.lastUsedAt ? new Date(session.lastUsedAt).toLocaleString() : 'Not used yet'}</td>
+                              <td><span className={`audit-status ${session.status === 'active' ? 'ok' : session.status === 'expired' ? 'neutral' : 'warn'}`}>{session.status}</span></td>
+                              <td>
+                                <strong>{session.ipAddress || 'Unknown IP'}</strong>
+                                <span>{session.userAgent || 'Unknown device'}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {user && (
+                <div className="admin-audit-panel account-session-panel">
+                  <div className="saved-report-heading">
+                    <h4>Privacy controls</h4>
+                    <div className="report-actions">
+                      <button className="btn-outline small" onClick={handleDataExport}>Download my data</button>
+                      <button className="btn-outline small" onClick={handleRequestDataDeletion}>Request data deletion</button>
+                    </div>
+                  </div>
+                  <p className="status subtle">Cookie retention: authentication cookies expire automatically and are removed on logout. Local storage retention: theme, onboarding preference, and recent/search analytics persist in your browser until cleared.</p>
+                </div>
+              )}
+
+            </div>
+          </section>
+        )}
+
+        {view === 'admin' && user?.isAdmin && (
+          <section className="stack">
+            <div className="panel">
+              <div className="detail-heading">
+                <div>
+                  <p className="eyebrow">Admin tools</p>
+                  <h2>Audit Logs</h2>
+                  <p className="section-subtitle detail-subtitle">Review authentication activity, export filtered rows, and page through large audit volumes.</p>
+                  <p className="admin-refresh-indicator">{lastAdminRefreshAt ? `Last refreshed ${Math.max(0, Math.round((Date.now() - lastAdminRefreshAt) / 1000))}s ago` : 'Refreshing...'}</p>
+                </div>
+                <button className={`btn-outline small${criticalOnlyMode ? ' active-filter' : ''}`} onClick={toggleCriticalOnlyFilter}>
+                  Critical Alerts{openCriticalAlertCount > 0 ? ` (${openCriticalAlertCount})` : ''}
+                </button>
+              </div>
+
+              {showOnboarding && (
+                <div className="onboarding-inline-panel">
+                  <div>
+                    <strong>{onboardingContent.title}</strong>
+                    <p>{onboardingContent.body}</p>
+                  </div>
+                  <button type="button" className="btn-outline small" onClick={dismissOnboarding}>Dismiss onboarding</button>
+                </div>
+              )}
+
+              <div className="admin-audit-panel admin-panel-block">
+                <div className="saved-report-heading">
+                  <h4>Authentication audit logs</h4>
+                  <button className="btn-outline small" onClick={exportAuditLogsCsv}>Export current page CSV</button>
+                </div>
+                <div className="saved-report-toolbar admin-audit-toolbar">
+                  <input value={auditFilters.email} onChange={(event) => updateAuditFilter('email', event.target.value)} placeholder="Filter by email" />
+                  <input value={auditFilters.userId} onChange={(event) => updateAuditFilter('userId', event.target.value)} placeholder="Filter by user ID" />
+                  <select value={auditFilters.eventType} onChange={(event) => updateAuditFilter('eventType', event.target.value)}>
+                    <option value="">All event types</option>
+                    <option value="AUTH_REGISTER_SUCCEEDED">Register success</option>
+                    <option value="AUTH_LOGIN_SUCCEEDED">Login success</option>
+                    <option value="AUTH_LOGIN_FAILED">Login failed</option>
+                    <option value="AUTH_ACCOUNT_LOCKED">Account locked</option>
+                    <option value="AUTH_OTP_LOGIN_SUCCEEDED">OTP login success</option>
+                    <option value="AUTH_REFRESH_REUSED">Refresh reuse</option>
+                    <option value="AUTH_LOGOUT_SUCCEEDED">Logout success</option>
+                  </select>
+                  <input type="date" value={auditFilters.from} onChange={(event) => updateAuditFilter('from', event.target.value)} />
+                  <input type="date" value={auditFilters.to} onChange={(event) => updateAuditFilter('to', event.target.value)} />
+                  <select value={auditFilters.limit} onChange={(event) => updateAuditFilter('limit', Number(event.target.value))}>
+                    <option value={25}>25 per page</option>
+                    <option value={50}>50 per page</option>
+                    <option value={100}>100 per page</option>
+                  </select>
+                </div>
+
+                {auditLogError && <p className="field-error">{auditLogError}</p>}
+
+                {loadingAuditLogs ? (
+                  <div className="skeleton-stack">
+                    {Array.from({ length: 4 }).map((_, index) => <div key={index} className="skeleton-line" />)}
+                  </div>
+                ) : auditLogs.length === 0 ? (
+                  <div className="empty-state">
+                    <strong>No audit records found</strong>
+                    <p>Adjust the filters or date range to inspect a different slice of audit activity.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="audit-table-wrap">
+                      <table className="audit-table">
+                        <thead>
+                          <tr>
+                            <th>When</th>
+                            <th>Event</th>
+                            <th>User</th>
+                            <th>Status</th>
+                            <th>Request ID</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {auditLogs.map((entry) => (
+                            <tr key={entry.id}>
+                              <td>{new Date(entry.createdAt).toLocaleString()}</td>
+                              <td>{entry.eventType}</td>
+                              <td>
+                                <strong>{entry.email || `User ${entry.userId || 'Unknown'}`}</strong>
+                                <span>{entry.ipAddress || 'No IP recorded'}</span>
+                              </td>
+                              <td>
+                                <span className={`audit-status ${entry.success ? 'ok' : 'warn'}`}>
+                                  {entry.success ? 'Success' : entry.failureCode || 'Failed'}
+                                </span>
+                              </td>
+                              <td className="audit-request-id">{entry.requestId || 'N/A'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="audit-pagination">
+                      <span>Showing {auditLogs.length ? auditPagination.offset + 1 : 0}-{Math.min(auditPagination.offset + auditLogs.length, auditPagination.total)} of {auditPagination.total}</span>
+                      <div className="report-actions">
+                        <button className="btn-outline small" disabled={auditPagination.previousOffset == null} onClick={() => setAuditOffset(auditPagination.previousOffset ?? 0)}>Previous</button>
+                        <button className="btn-outline small" disabled={!auditPagination.hasMore || auditPagination.nextOffset == null} onClick={() => setAuditOffset(auditPagination.nextOffset ?? auditOffset)}>Next</button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="detail-heading">
+                <div>
+                  <p className="eyebrow">Session activity</p>
+                  <h2>User Sessions</h2>
+                  <p className="section-subtitle detail-subtitle">Review active, expired, and revoked refresh sessions across user accounts.</p>
+                </div>
+              </div>
+
+              <div className="admin-audit-panel admin-panel-block">
+                <div className="saved-report-heading">
+                  <h4>Refresh session activity</h4>
+                </div>
+                <div className="saved-report-toolbar admin-audit-toolbar">
+                  <input value={adminSessionFilters.email} onChange={(event) => updateAdminSessionFilter('email', event.target.value)} placeholder="Filter by email" />
+                  <input value={adminSessionFilters.userId} onChange={(event) => updateAdminSessionFilter('userId', event.target.value)} placeholder="Filter by user ID" />
+                  <select value={adminSessionFilters.status} onChange={(event) => updateAdminSessionFilter('status', event.target.value)}>
+                    <option value="">All statuses</option>
+                    <option value="active">Active</option>
+                    <option value="expired">Expired</option>
+                    <option value="revoked">Revoked</option>
+                  </select>
+                  <select value={adminSessionFilters.limit} onChange={(event) => updateAdminSessionFilter('limit', Number(event.target.value))}>
+                    <option value={25}>25 per page</option>
+                    <option value={50}>50 per page</option>
+                    <option value={100}>100 per page</option>
+                  </select>
+                </div>
+
+                {adminSessionsError && <p className="field-error">{adminSessionsError}</p>}
+
+                {loadingAdminSessions ? (
+                  <div className="skeleton-stack">
+                    {Array.from({ length: 4 }).map((_, index) => <div key={index} className="skeleton-line" />)}
+                  </div>
+                ) : adminSessions.length === 0 ? (
+                  <div className="empty-state">
+                    <strong>No session activity found</strong>
+                    <p>Adjust the filters to inspect a different slice of user session activity.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="audit-table-wrap">
+                      <table className="audit-table">
+                        <thead>
+                          <tr>
+                            <th>User</th>
+                            <th>Created</th>
+                            <th>Last used</th>
+                            <th>Status</th>
+                            <th>Device</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminSessions.map((session) => (
+                            <tr key={session.id}>
+                              <td>
+                                <strong>{session.email}</strong>
+                                <span>{session.name || `User ${session.userId}`}</span>
+                              </td>
+                              <td>{new Date(session.createdAt).toLocaleString()}</td>
+                              <td>{session.lastUsedAt ? new Date(session.lastUsedAt).toLocaleString() : 'Not used yet'}</td>
+                              <td><span className={`audit-status ${session.status === 'active' ? 'ok' : session.status === 'expired' ? 'neutral' : 'warn'}`}>{session.status}</span></td>
+                              <td>
+                                <strong>{session.ipAddress || 'Unknown IP'}</strong>
+                                <span>{session.userAgent || 'Unknown device'}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="audit-pagination">
+                      <span>Showing {adminSessions.length ? adminSessionsPagination.offset + 1 : 0}-{Math.min(adminSessionsPagination.offset + adminSessions.length, adminSessionsPagination.total)} of {adminSessionsPagination.total}</span>
+                      <div className="report-actions">
+                        <button className="btn-outline small" disabled={adminSessionsPagination.previousOffset == null} onClick={() => setAdminSessionsOffset(adminSessionsPagination.previousOffset ?? 0)}>Previous</button>
+                        <button className="btn-outline small" disabled={!adminSessionsPagination.hasMore || adminSessionsPagination.nextOffset == null} onClick={() => setAdminSessionsOffset(adminSessionsPagination.nextOffset ?? adminSessionsOffset)}>Next</button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="detail-heading">
+                <div>
+                  <p className="eyebrow">Security alerts</p>
+                  <h2>Auth Security Alerts</h2>
+                  <p className="section-subtitle detail-subtitle">Track repeated lockouts and refresh-token reuse alerts with severity filters and CSV export.</p>
+                </div>
+              </div>
+
+              <div className="admin-audit-panel admin-panel-block">
+                <div className="saved-report-heading">
+                  <h4>Security alert feed</h4>
+                  <div className="report-actions">
+                    <button className="btn-outline small" disabled={!selectedSecurityAlertIds.length} onClick={() => bulkUpdateSecurityAlerts('acknowledge')}>Acknowledge selected</button>
+                    <button className="btn-outline small" disabled={!selectedSecurityAlertIds.length} onClick={() => bulkUpdateSecurityAlerts('resolve')}>Resolve selected</button>
+                      <button className="btn-outline small" disabled={!selectedSecurityAlertIds.length} onClick={() => bulkUpdateSecurityAlerts('reopen')}>Reopen selected</button>
+                    <button className="btn-outline small" onClick={exportSecurityAlertsCsv}>Export current page CSV</button>
+                  </div>
+                </div>
+                <div className="saved-report-toolbar admin-audit-toolbar">
+                  <input value={securityAlertFilters.subject} onChange={(event) => updateSecurityAlertFilter('subject', event.target.value)} placeholder="Filter by subject" />
+                  <select value={securityAlertFilters.alertType} onChange={(event) => updateSecurityAlertFilter('alertType', event.target.value)}>
+                    <option value="">All alert types</option>
+                    <option value="LOCKOUT_THRESHOLD_EXCEEDED">Lockout threshold exceeded</option>
+                    <option value="REFRESH_TOKEN_REUSE_DETECTED">Refresh token reuse detected</option>
+                  </select>
+                  <select value={securityAlertFilters.severity} onChange={(event) => updateSecurityAlertFilter('severity', event.target.value)}>
+                    <option value="">All severities</option>
+                    <option value="warning">Warning</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                  <select value={securityAlertFilters.status} onChange={(event) => updateSecurityAlertFilter('status', event.target.value)}>
+                    <option value="">All statuses</option>
+                    <option value="open">Open</option>
+                    <option value="acknowledged">Acknowledged</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                  <input type="date" value={securityAlertFilters.from} onChange={(event) => updateSecurityAlertFilter('from', event.target.value)} />
+                  <input type="date" value={securityAlertFilters.to} onChange={(event) => updateSecurityAlertFilter('to', event.target.value)} />
+                  <select value={securityAlertFilters.limit} onChange={(event) => updateSecurityAlertFilter('limit', Number(event.target.value))}>
+                    <option value={25}>25 per page</option>
+                    <option value={50}>50 per page</option>
+                    <option value={100}>100 per page</option>
+                  </select>
+                </div>
+
+                {securityAlertError && <p className="field-error">{securityAlertError}</p>}
+
+                {loadingSecurityAlerts ? (
+                  <div className="skeleton-stack">
+                    {Array.from({ length: 4 }).map((_, index) => <div key={index} className="skeleton-line" />)}
+                  </div>
+                ) : securityAlerts.length === 0 ? (
+                  <div className="empty-state">
+                    <strong>No security alerts found</strong>
+                    <p>Adjust the severity or date filters to inspect a different slice of alert activity.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="audit-table-wrap">
+                      <table className="audit-table">
+                        <thead>
+                          <tr>
+                            <th>Select</th>
+                            <th>When</th>
+                            <th>Alert</th>
+                            <th>Subject</th>
+                            <th>Severity</th>
+                            <th>Status</th>
+                            <th>Count</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {securityAlerts.map((entry) => (
+                            <tr key={entry.id}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSecurityAlertIds.includes(entry.id)}
+                                  onChange={() => toggleSecurityAlertSelection(entry.id)}
+                                />
+                              </td>
+                              <td>{new Date(entry.createdAt).toLocaleString()}</td>
+                              <td>{entry.alertType}</td>
+                              <td>
+                                <strong>{entry.subjectLabel}</strong>
+                                <span>{entry.subjectKey}</span>
+                              </td>
+                              <td>
+                                <span className={`audit-status ${entry.severity === 'critical' ? 'critical' : 'warn'}`}>{entry.severity}</span>
+                              </td>
+                              <td>
+                                <span className={`audit-status ${entry.status === 'resolved' ? 'ok' : entry.status === 'acknowledged' ? 'neutral' : 'warn'}`}>{entry.status}</span>
+                              </td>
+                              <td>{entry.eventCount}/{entry.threshold} in {entry.windowMinutes}m</td>
+                              <td>
+                                <div className="audit-actions">
+                                  <button className="btn-outline small" disabled={entry.status === 'acknowledged' || entry.status === 'resolved'} onClick={() => markSecurityAlert(entry.id, 'acknowledge')}>Acknowledge</button>
+                                  <button className="btn-outline small" disabled={entry.status === 'resolved'} onClick={() => markSecurityAlert(entry.id, 'resolve')}>Resolve</button>
+                                  <button className="btn-outline small" disabled={entry.status === 'open'} onClick={() => markSecurityAlert(entry.id, 'reopen')}>Reopen</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="audit-pagination">
+                      <span>Showing {securityAlerts.length ? securityAlertPagination.offset + 1 : 0}-{Math.min(securityAlertPagination.offset + securityAlerts.length, securityAlertPagination.total)} of {securityAlertPagination.total}</span>
+                      <div className="report-actions">
+                        <button className="btn-outline small" disabled={securityAlertPagination.previousOffset == null} onClick={() => setSecurityAlertOffset(securityAlertPagination.previousOffset ?? 0)}>Previous</button>
+                        <button className="btn-outline small" disabled={!securityAlertPagination.hasMore || securityAlertPagination.nextOffset == null} onClick={() => setSecurityAlertOffset(securityAlertPagination.nextOffset ?? securityAlertOffset)}>Next</button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="detail-heading">
+                <div>
+                  <p className="eyebrow">Delivery monitoring</p>
+                  <h2>Alert Delivery Logs</h2>
+                  <p className="section-subtitle detail-subtitle">Review failed webhook, Slack, and email delivery attempts directly from the admin console.</p>
+                </div>
+              </div>
+
+              <div className="admin-audit-panel admin-panel-block">
+                <div className="saved-report-heading">
+                  <h4>Outbound delivery attempts</h4>
+                </div>
+                <div className="saved-report-toolbar admin-audit-toolbar">
+                  <input value={deliveryLogFilters.alertId} onChange={(event) => updateDeliveryLogFilter('alertId', event.target.value)} placeholder="Filter by alert ID" />
+                  <select value={deliveryLogFilters.channel} onChange={(event) => updateDeliveryLogFilter('channel', event.target.value)}>
+                    <option value="">All channels</option>
+                    <option value="webhook">Webhook</option>
+                    <option value="slack">Slack</option>
+                    <option value="email">Email</option>
+                  </select>
+                  <select value={deliveryLogFilters.success} onChange={(event) => updateDeliveryLogFilter('success', event.target.value)}>
+                    <option value="false">Failed only</option>
+                    <option value="">All attempts</option>
+                    <option value="true">Successful only</option>
+                  </select>
+                  <input type="date" value={deliveryLogFilters.from} onChange={(event) => updateDeliveryLogFilter('from', event.target.value)} />
+                  <input type="date" value={deliveryLogFilters.to} onChange={(event) => updateDeliveryLogFilter('to', event.target.value)} />
+                  <select value={deliveryLogFilters.limit} onChange={(event) => updateDeliveryLogFilter('limit', Number(event.target.value))}>
+                    <option value={25}>25 per page</option>
+                    <option value={50}>50 per page</option>
+                    <option value={100}>100 per page</option>
+                  </select>
+                </div>
+
+                {deliveryLogError && <p className="field-error">{deliveryLogError}</p>}
+
+                {loadingDeliveryLogs ? (
+                  <div className="skeleton-stack">
+                    {Array.from({ length: 4 }).map((_, index) => <div key={index} className="skeleton-line" />)}
+                  </div>
+                ) : deliveryLogs.length === 0 ? (
+                  <div className="empty-state">
+                    <strong>No delivery attempts found</strong>
+                    <p>Adjust the channel/date filters or include successful attempts to inspect another slice of outbound delivery activity.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="audit-table-wrap">
+                      <table className="audit-table">
+                        <thead>
+                          <tr>
+                            <th>When</th>
+                            <th>Alert ID</th>
+                            <th>Channel</th>
+                            <th>Destination</th>
+                            <th>Attempt</th>
+                            <th>Status</th>
+                            <th>Error</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {deliveryLogs.map((entry) => (
+                            <tr key={entry.id}>
+                              <td>{new Date(entry.createdAt).toLocaleString()}</td>
+                              <td>{entry.alertId}</td>
+                              <td>{entry.channel}</td>
+                              <td className="audit-request-id">{entry.destination}</td>
+                              <td>{entry.attemptNumber}</td>
+                              <td>
+                                <span className={`audit-status ${entry.success ? 'ok' : 'warn'}`}>{entry.success ? 'Delivered' : entry.responseStatus || 'Failed'}</span>
+                              </td>
+                              <td>{entry.errorMessage || 'None'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="audit-pagination">
+                      <span>Showing {deliveryLogs.length ? deliveryLogPagination.offset + 1 : 0}-{Math.min(deliveryLogPagination.offset + deliveryLogs.length, deliveryLogPagination.total)} of {deliveryLogPagination.total}</span>
+                      <div className="report-actions">
+                        <button className="btn-outline small" disabled={deliveryLogPagination.previousOffset == null} onClick={() => setDeliveryLogOffset(deliveryLogPagination.previousOffset ?? 0)}>Previous</button>
+                        <button className="btn-outline small" disabled={!deliveryLogPagination.hasMore || deliveryLogPagination.nextOffset == null} onClick={() => setDeliveryLogOffset(deliveryLogPagination.nextOffset ?? deliveryLogOffset)}>Next</button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </section>
         )}

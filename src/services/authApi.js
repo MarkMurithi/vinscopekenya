@@ -1,13 +1,13 @@
-import { requestJson } from './vehicleApi';
+import { apiBaseUrl, requestJson } from './vehicleApi';
 
 // Real, server-backed auth against Postgres (bcrypt-hashed passwords + an httpOnly JWT cookie).
 // Replaces the old localStorage-based mockApi.js.
 
-export async function registerUser(email, password, name, phone, code, verificationMethod) {
+export async function registerUser(email, password, name, phone, code, verificationMethod, acceptedTerms, acceptedPrivacy) {
   try {
     const data = await requestJson('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, password, name, phone, code, verificationMethod }),
+      body: JSON.stringify({ email, password, name, phone, code, verificationMethod, acceptedTerms, acceptedPrivacy }),
     });
     return { success: true, user: data.user };
   } catch (error) {
@@ -59,6 +59,14 @@ export async function logoutUser() {
   }
 }
 
+export async function logoutAllDevices() {
+  try {
+    await requestJson('/api/auth/logout-all', { method: 'POST' });
+  } catch {
+    // Ignore - local auth state is still cleared by the caller.
+  }
+}
+
 export async function fetchCurrentUser() {
   try {
     const data = await requestJson('/api/auth/me');
@@ -66,6 +74,30 @@ export async function fetchCurrentUser() {
   } catch {
     return null;
   }
+}
+
+export async function getAuthSessions(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+
+  const query = params.toString();
+  return requestJson(`/api/auth/sessions${query ? `?${query}` : ''}`);
+}
+
+export async function getAdminSessions(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+
+  const query = params.toString();
+  return requestJson(`/api/admin/sessions${query ? `?${query}` : ''}`);
 }
 
 export async function getVehicleReports() {
@@ -91,6 +123,91 @@ export async function setReportComparisonSelection(vin, selected) {
   return requestJson(`/api/reports/${encodeURIComponent(vin)}/comparison`, {
     method: 'PATCH',
     body: JSON.stringify({ selected }),
+  });
+}
+
+export async function getAdminAuditLogs(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+
+  const query = params.toString();
+  return requestJson(`/api/admin/audit-logs${query ? `?${query}` : ''}`);
+}
+
+export function buildAdminAuditCsvUrl(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+  params.set('format', 'csv');
+
+  return `${apiBaseUrl}/api/admin/audit-logs?${params.toString()}`;
+}
+
+export async function getAdminSecurityAlerts(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+
+  const query = params.toString();
+  return requestJson(`/api/admin/security-alerts${query ? `?${query}` : ''}`);
+}
+
+export function buildAdminSecurityAlertsCsvUrl(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+  params.set('format', 'csv');
+
+  return `${apiBaseUrl}/api/admin/security-alerts?${params.toString()}`;
+}
+
+export async function updateAdminSecurityAlert(id, action, note) {
+  return requestJson(`/api/admin/security-alerts/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action, note }),
+  });
+}
+
+export async function updateAdminSecurityAlertsBulk(ids, action, note) {
+  return requestJson('/api/admin/security-alerts/bulk', {
+    method: 'PATCH',
+    body: JSON.stringify({ ids, action, note }),
+  });
+}
+
+export async function getAdminAlertDeliveryLogs(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+
+  const query = params.toString();
+  return requestJson(`/api/admin/alert-delivery-logs${query ? `?${query}` : ''}`);
+}
+
+export async function exportMyData() {
+  return requestJson('/api/auth/data-export');
+}
+
+export async function requestDataDeletion(reason) {
+  return requestJson('/api/auth/data-deletion-request', {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
   });
 }
 
