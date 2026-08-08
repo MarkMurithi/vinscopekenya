@@ -427,6 +427,15 @@ async function getLatestUserConsent(userId) {
   return rows[0] || null;
 }
 
+async function withUserConsentStatus(user) {
+  const latestConsent = await getLatestUserConsent(user.id);
+  return {
+    ...user,
+    consent_policy_version: latestConsent?.policyVersion || null,
+    requires_policy_reconsent: latestConsent?.policyVersion !== LEGAL_POLICY_VERSION,
+  };
+}
+
 async function enforcePolicyReconsent(req, res, next) {
   const latestConsent = await getLatestUserConsent(req.user.id);
   if (!latestConsent || latestConsent.policyVersion !== LEGAL_POLICY_VERSION) {
@@ -5321,7 +5330,7 @@ app.post('/api/auth/otp/login', loginLimiter, asyncHandler(async (req, res) => {
       phone: result.normalized,
       success: true,
     });
-    return res.json({ user: serializeUser(user) });
+    return res.json({ user: serializeUser(await withUserConsentStatus(user)) });
   } catch (error) {
     console.error('Phone login failed', error);
     return sendApiError(req, res, 500, 'PHONE_LOGIN_FAILED', 'Login failed. Please try again.');
@@ -5514,7 +5523,7 @@ app.post('/api/auth/login', loginLimiter, asyncHandler(async (req, res) => {
       email: user.email,
       success: true,
     });
-    return res.json({ user: serializeUser(user) });
+    return res.json({ user: serializeUser(await withUserConsentStatus(user)) });
   } catch (error) {
     console.error('Login failed', error);
     return sendApiError(req, res, 500, 'LOGIN_FAILED', 'Login failed. Please try again.');
@@ -5584,13 +5593,7 @@ app.get('/api/auth/me', requireAuth, asyncHandler(async (req, res) => {
   if (!rows[0]) {
     return sendApiError(req, res, 404, 'USER_NOT_FOUND', 'User not found');
   }
-  const latestConsent = await getLatestUserConsent(req.user.id);
-  const userPayload = {
-    ...rows[0],
-    consent_policy_version: latestConsent?.policyVersion || null,
-    requires_policy_reconsent: latestConsent?.policyVersion !== LEGAL_POLICY_VERSION,
-  };
-  res.json({ user: serializeUser(userPayload) });
+  res.json({ user: serializeUser(await withUserConsentStatus(rows[0])) });
 }));
 
 app.get('/api/auth/data-export', requireAuth, asyncHandler(async (req, res) => {

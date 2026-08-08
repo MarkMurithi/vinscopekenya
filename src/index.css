@@ -1524,6 +1524,11 @@ button {
   flex-wrap: wrap;
 }
 
+.report-save-feedback {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .report-section-title {
   margin: 4px 0 0;
   color: var(--navy);

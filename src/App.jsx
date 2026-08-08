@@ -1021,6 +1021,8 @@ function App() {
   const [savedReports, setSavedReports] = useState([]);
   const [loadingVehicle, setLoadingVehicle] = useState(false);
   const [loadingSavedReports, setLoadingSavedReports] = useState(true);
+  const [savingReport, setSavingReport] = useState(false);
+  const [saveReportFeedback, setSaveReportFeedback] = useState(null);
   const [apiStatus, setApiStatus] = useState('Checking API...');
   const [formErrors, setFormErrors] = useState({});
   const [payingPlan, setPayingPlan] = useState(null);
@@ -1277,6 +1279,16 @@ function App() {
       setAuthFailureHandler(null);
     };
   }, []);
+
+  useEffect(() => {
+    if (user?.requiresPolicyReconsent) {
+      setShowReconsentModal(true);
+    }
+  }, [user?.requiresPolicyReconsent]);
+
+  useEffect(() => {
+    setSaveReportFeedback(null);
+  }, [selectedReport.vin]);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -2012,10 +2024,12 @@ function App() {
 
   const saveCurrentReport = async () => {
     if (!user) {
-      setMessage('Sign in first to save a report.');
+      setSaveReportFeedback({ tone: 'error', message: 'Sign in first to save this report.' });
       return;
     }
 
+    setSavingReport(true);
+    setSaveReportFeedback(null);
     try {
       const savedReport = await saveVehicleReport(selectedReport);
       setSavedReports((current) => {
@@ -2025,9 +2039,17 @@ function App() {
           : savedReport;
         return [updated, ...current.filter((report) => report.vin !== savedReport.vin)];
       });
-      setMessage(`Saved ${selectedReport.make} ${selectedReport.model} to your account.`);
+      setSaveReportFeedback({ tone: 'success', message: 'Report saved' });
+      setMessage('Report saved');
     } catch (error) {
-      setMessage(error.message || 'Could not save this report.');
+      if (error.code === 'POLICY_RECONSENT_REQUIRED') {
+        setShowReconsentModal(true);
+      }
+      const errorMessage = error.message || 'Could not save this report.';
+      setSaveReportFeedback({ tone: 'error', message: errorMessage });
+      setMessage(errorMessage);
+    } finally {
+      setSavingReport(false);
     }
   };
 
@@ -2998,8 +3020,19 @@ function App() {
                     <span className="score-tier-label">{reportScoreTier.label}</span>
                   </div>
                   <div className="report-action-buttons">
-                    <button className="btn-outline small" onClick={saveCurrentReport}>Save report</button>
+                    <button className="btn-outline small" onClick={saveCurrentReport} disabled={savingReport}>
+                      {savingReport ? 'Saving...' : 'Save report'}
+                    </button>
                     <button className="btn-outline small" onClick={() => window.print()}>Print / Save PDF</button>
+                    {saveReportFeedback && (
+                      <span
+                        className={`report-save-feedback ${saveReportFeedback.tone === 'error' ? 'field-error' : 'status'}`}
+                        role="status"
+                        aria-live="polite"
+                      >
+                        {saveReportFeedback.message}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
