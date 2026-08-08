@@ -107,6 +107,7 @@ This is designed to prevent accidental writes from local development/test runs t
 - JWTs now include issuer/audience validation (`JWT_ISSUER`, `JWT_AUDIENCE`).
 - Password login is temporarily locked after repeated failed attempts (`LOGIN_MAX_ATTEMPTS`, `LOGIN_LOCKOUT_MINUTES`).
 - Repeated failed password attempts are also rate-limited per IP/network (`LOGIN_IP_MAX_FAILURES`, `LOGIN_IP_WINDOW_MINUTES`, `LOGIN_IP_LOCKOUT_MINUTES`).
+- Set `TRUST_PROXY_HOPS` to the number of reverse proxies in front of the app so per-IP limits use the real client address (Render uses `1`; local development uses `0`).
 - OTP issuance and verification are additionally throttled per phone and per IP (`OTP_SEND_*`, `OTP_VERIFY_*`) to reduce abuse.
 - Admin-only audit log viewing is available at `GET /api/admin/audit-logs` and can be filtered by `userId`, `email`, `eventType`, `from`, `to`, and `limit`.
 - Admin-only security alert viewing is available at `GET /api/admin/security-alerts` and can be filtered by `alertType`, `severity`, `subject`, `from`, `to`, `limit`, and `offset`.

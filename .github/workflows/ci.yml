@@ -43,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check environment template for secrets
+        run: npm run check:secrets
+
       - name: Run tests
         run: npm test
 

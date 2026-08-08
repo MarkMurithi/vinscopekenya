@@ -44,6 +44,13 @@ const distDir = path.join(__dirname, 'dist');
 const allowedOrigin = process.env.ALLOWED_ORIGIN || (process.env.NODE_ENV === 'production' ? false : 'http://localhost:5173');
 
 const app = express();
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? (process.env.NODE_ENV === 'production' ? 1 : 0));
+if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
+  throw new Error('TRUST_PROXY_HOPS must be a non-negative integer');
+}
+if (trustProxyHops > 0) {
+  app.set('trust proxy', trustProxyHops);
+}
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: allowedOrigin === false ? true : allowedOrigin, credentials: true }));
 app.use((req, res, next) => {
@@ -68,6 +75,7 @@ const registerLimiter = rateLimit({
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many attempts. Please try again later.' },
