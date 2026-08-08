@@ -1014,7 +1014,6 @@ function App() {
   const [user, setUser] = useState(null);
   const [vinInput, setVinInput] = useState('');
   const [selectedReport, setSelectedReport] = useState(sampleReports[0]);
-  const [comparisonIds, setComparisonIds] = useState([1, 2]);
   const [message, setMessage] = useState('Use the demo account to explore the app.');
   const [email, setEmail] = useState('demo@vinscope.com');
   const [password, setPassword] = useState('demo123');
@@ -1153,15 +1152,10 @@ function App() {
     }
   });
 
-  // Compare a signed-in user's own looked-up vehicles once they've saved any;
-  // otherwise fall back to the 3 demo vehicles so the page still works for guests.
-  const usingSavedComparison = Boolean(user) && savedReports.length > 0;
-  const comparisonReports = useMemo(() => {
-    if (usingSavedComparison) {
-      return savedReports.filter((report) => report.selectedForComparison);
-    }
-    return sampleReports.filter((report) => comparisonIds.includes(report.id));
-  }, [usingSavedComparison, savedReports, comparisonIds]);
+  const comparisonReports = useMemo(
+    () => savedReports.filter((report) => report.selectedForComparison),
+    [savedReports]
+  );
   const comparisonChartData = useMemo(() => buildComparisonChartData(comparisonReports), [comparisonReports]);
   const bestComparisonReport = useMemo(() => [...comparisonChartData].sort((a, b) => b.score - a.score)[0], [comparisonChartData]);
   const detailSections = useMemo(() => buildVehicleHistorySections(detailReport || selectedReport), [detailReport, selectedReport]);
@@ -2007,12 +2001,6 @@ function App() {
     }
   };
 
-  const toggleComparison = (id) => {
-    setComparisonIds((current) =>
-      current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]
-    );
-  };
-
   const toggleSavedComparison = async (vin, currentlySelected) => {
     try {
       const updated = await setReportComparisonSelection(vin, !currentlySelected);
@@ -2029,8 +2017,14 @@ function App() {
     }
 
     try {
-      await saveVehicleReport(selectedReport);
-      setSavedReports(await getVehicleReports());
+      const savedReport = await saveVehicleReport(selectedReport);
+      setSavedReports((current) => {
+        const existing = current.find((report) => report.vin === savedReport.vin);
+        const updated = existing
+          ? { ...savedReport, selectedForComparison: savedReport.selectedForComparison ?? existing.selectedForComparison }
+          : savedReport;
+        return [updated, ...current.filter((report) => report.vin !== savedReport.vin)];
+      });
       setMessage(`Saved ${selectedReport.make} ${selectedReport.model} to your account.`);
     } catch (error) {
       setMessage(error.message || 'Could not save this report.');
@@ -3278,32 +3272,32 @@ function App() {
           <section className="stack">
             <div className="panel">
               <h2>Vehicle comparison dashboard</h2>
-              <p>
-                {usingSavedComparison
-                  ? 'Select from your saved reports to compare their risk profile and trust score.'
-                  : 'Select vehicles to compare their risk profile and trust score. Save reports to your account to compare your own lookups instead of the demo vehicles.'}
-              </p>
-              <div className="cards compact">
-                {usingSavedComparison
-                  ? savedReports.map((report) => (
-                      <article key={report.vin} className="compare-card">
-                        <h3>{report.make} {report.model}</h3>
-                        <p>{report.year ?? 'Unknown'} • {report.status}</p>
-                        <button onClick={() => toggleSavedComparison(report.vin, report.selectedForComparison)}>
-                          {report.selectedForComparison ? 'Remove' : 'Add to compare'}
-                        </button>
-                      </article>
-                    ))
-                  : sampleReports.map((report) => (
-                      <article key={report.id} className="compare-card">
-                        <h3>{report.make} {report.model}</h3>
-                        <p>{report.year} • {report.status}</p>
-                        <button onClick={() => toggleComparison(report.id)}>
-                          {comparisonIds.includes(report.id) ? 'Remove' : 'Add to compare'}
-                        </button>
-                      </article>
-                    ))}
-              </div>
+              <p>Select saved reports to compare their risk profile and trust score.</p>
+              {!user ? (
+                <div className="empty-state">
+                  <strong>Sign in to compare saved reports</strong>
+                  <p>Your saved vehicle reports will appear here after you sign in.</p>
+                  <button className="btn-red" onClick={() => openAuth('login')}>Sign in</button>
+                </div>
+              ) : savedReports.length === 0 ? (
+                <div className="empty-state">
+                  <strong>No saved reports available</strong>
+                  <p>Save vehicle reports first, then return here to add them to a comparison.</p>
+                  <button className="btn-red" onClick={() => setView('report')}>Find a vehicle</button>
+                </div>
+              ) : (
+                <div className="cards compact">
+                  {savedReports.map((report) => (
+                    <article key={report.vin} className="compare-card">
+                      <h3>{report.make} {report.model}</h3>
+                      <p>{report.year ?? 'Unknown'} • {report.status}</p>
+                      <button onClick={() => toggleSavedComparison(report.vin, report.selectedForComparison)}>
+                        {report.selectedForComparison ? 'Remove' : 'Add to compare'}
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="panel">
